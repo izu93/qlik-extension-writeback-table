@@ -38,25 +38,6 @@ export default function ext(galaxy) {
                   label: "Enable Sorting",
                   defaultValue: true,
                 },
-                allowWriteback: {
-                  type: "boolean",
-                  ref: "tableOptions.allowWriteback",
-                  label: "Enable Writeback",
-                  defaultValue: true,
-                },
-                rowAlternation: {
-                  type: "boolean",
-                  ref: "tableOptions.rowAlternation",
-                  label: "Alternate Row Colors",
-                  defaultValue: true,
-                },
-              },
-            },
-            // Add sorting options
-            sortingOptions: {
-              type: "items",
-              label: "Sorting Options",
-              items: {
                 showSortIcons: {
                   type: "boolean",
                   ref: "sortOptions.showSortIcons",
@@ -79,6 +60,18 @@ export default function ext(galaxy) {
                     },
                   ],
                   defaultValue: "asc",
+                },
+                allowWriteback: {
+                  type: "boolean",
+                  ref: "tableOptions.allowWriteback",
+                  label: "Enable Writeback",
+                  defaultValue: true,
+                },
+                rowAlternation: {
+                  type: "boolean",
+                  ref: "tableOptions.rowAlternation",
+                  label: "Alternate Row Colors",
+                  defaultValue: true,
                 },
               },
             },

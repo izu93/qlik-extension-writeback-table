@@ -249,16 +249,24 @@ export default function supernova(galaxy) {
           const headerRow = document.createElement("tr");
 
           // Function to apply sorting
-          const applySort = (headerObj, direction) => {
-            if (headerObj.type === "dimension") {
-              // Find the dimension index
-              const dimensions = layout.qHyperCube.qDimensionInfo || [];
-              const dimIndex = dimensions.findIndex(
-                (d) => d.qFallbackTitle === headerObj.id
+          const applySort = (headerObj, direction, forceSort = false) => {
+            try {
+              console.log(
+                `index.js: Applying ${direction} sort for ${headerObj.type} ${headerObj.id}`
               );
 
-              if (dimIndex !== -1) {
-                try {
+              // Begin selection mode for patching
+              model.beginSelections(["/qHyperCubeDef"]);
+
+              // Different handling for dimensions and measures
+              if (headerObj.type === "dimension") {
+                // Find the dimension index
+                const dimensions = layout.qHyperCube.qDimensionInfo || [];
+                const dimIndex = dimensions.findIndex(
+                  (d) => d.qFallbackTitle === headerObj.id
+                );
+
+                if (dimIndex !== -1) {
                   // Create direction value for Qlik (1 for asc, -1 for desc)
                   const sortValue =
                     direction === "asc" ? 1 : direction === "desc" ? -1 : 0;
@@ -273,60 +281,84 @@ export default function supernova(galaxy) {
                     qSortByExpression: 0,
                   };
 
-                  console.log(
-                    `index.js: Applying ${direction} sort for dimension ${headerObj.id}`
-                  );
+                  // Reset any measure sorting first and set column sort order
+                  const patches = [
+                    {
+                      qPath: `/qHyperCubeDef/qDimensions/${dimIndex}/qDef/qSortCriterias/0`,
+                      qOp: "replace",
+                      qValue: JSON.stringify(sortCriteria),
+                    },
+                    {
+                      qPath: "/qHyperCubeDef/qInterColumnSortOrder",
+                      qOp: "replace",
+                      qValue: JSON.stringify([dimIndex]), // Ensure we're sorting by this dimension
+                    },
+                  ];
 
-                  // Use both applyPatches and beginSelections for better sorting
-                  model.beginSelections(["/qHyperCubeDef"]);
-                  model.applyPatches(
-                    [
-                      {
-                        qPath: `/qHyperCubeDef/qDimensions/${dimIndex}/qDef/qSortCriterias/0`,
-                        qOp: "replace",
-                        qValue: JSON.stringify(sortCriteria),
-                      },
-                    ],
-                    true
-                  );
-                  model.endSelections(true);
-                } catch (err) {
-                  console.error("Sorting error:", err);
+                  // Apply both patches
+                  model.applyPatches(patches, true);
                 }
-              }
-            } else if (headerObj.type === "measure") {
-              // For measures
-              const dimensions = layout.qHyperCube.qDimensionInfo || [];
-              const measures = layout.qHyperCube.qMeasureInfo || [];
-              const measIndex = measures.findIndex(
-                (m) => m.qFallbackTitle === headerObj.id
-              );
+              } else if (headerObj.type === "measure") {
+                // For measures
+                const dimensions = layout.qHyperCube.qDimensionInfo || [];
+                const measures = layout.qHyperCube.qMeasureInfo || [];
+                const measIndex = measures.findIndex(
+                  (m) => m.qFallbackTitle === headerObj.id
+                );
 
-              if (measIndex !== -1) {
-                try {
+                if (measIndex !== -1) {
                   // Calculate the sortIndex for this measure
                   const sortIndex = dimensions.length + measIndex;
 
-                  console.log(
-                    `index.js: Applying sort to measure ${headerObj.id} at index ${sortIndex}`
-                  );
+                  // Get current sort order
+                  const currentSortOrder =
+                    layout.qHyperCube.qEffectiveInterColumnSortOrder || [];
+                  const isCurrentlySorted =
+                    currentSortOrder.length === 1 &&
+                    currentSortOrder[0] === sortIndex;
 
-                  // Use beginSelections for better sorting
-                  model.beginSelections(["/qHyperCubeDef"]);
+                  // Apply or toggle sort
+                  let newSortOrder;
+                  if (!isCurrentlySorted || forceSort) {
+                    // Not sorted by this measure yet, or forcing sort
+                    newSortOrder = [sortIndex];
+                    console.log(
+                      `Setting sort to measure at index ${sortIndex}`
+                    );
+                  } else {
+                    // Already sorted, toggle off or use first dimension
+                    const defaultSort = dimensions.length > 0 ? [0] : [];
+                    newSortOrder = defaultSort;
+                    console.log(
+                      `Resetting sort to default: ${JSON.stringify(
+                        defaultSort
+                      )}`
+                    );
+                  }
+
+                  // Apply the sort order
                   model.applyPatches(
                     [
                       {
                         qPath: "/qHyperCubeDef/qInterColumnSortOrder",
                         qOp: "replace",
-                        qValue: JSON.stringify([sortIndex]),
+                        qValue: JSON.stringify(newSortOrder),
                       },
                     ],
                     true
                   );
-                  model.endSelections(true);
-                } catch (err) {
-                  console.error("Sorting error:", err);
                 }
+              }
+
+              // End selection mode to apply changes
+              model.endSelections(true);
+            } catch (err) {
+              console.error("Sorting error:", err);
+              // Try to end selections even if there was an error
+              try {
+                model.endSelections(true);
+              } catch (endErr) {
+                console.error("Error ending selections:", endErr);
               }
             }
           };
@@ -418,7 +450,7 @@ export default function supernova(galaxy) {
           const tbody = document.createElement("tbody");
 
           tableData.rows.forEach((row, rowIndex) => {
-            console.log(`index.js: Creating row ${rowIndex}`);
+            // console.log(`index.js: Creating row ${rowIndex}`);
 
             const tr = document.createElement("tr");
             tr.setAttribute("data-row", rowIndex);
@@ -480,9 +512,9 @@ export default function supernova(galaxy) {
                   cellData.selectable &&
                   layout.tableOptions?.allowSelections
                 ) {
-                  console.log(
+                  /*  console.log(
                     `index.js: Creating selectable cell for ${header.id} at row ${rowIndex}`
-                  );
+                  ); */
 
                   td.className = "selectable";
                   td.setAttribute(
