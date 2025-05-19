@@ -1,0 +1,8 @@
+{
+  "name": "visualization",
+  "description": "Writeback table extension for Qlik Cloud",
+  "author": "Karthik Burra",
+  "version": "0.1.0",
+  "icon": "table",
+  "preview": ""
+}
