@@ -52,6 +52,36 @@ export default function ext(galaxy) {
                 },
               },
             },
+            // Add sorting options
+            sortingOptions: {
+              type: "items",
+              label: "Sorting Options",
+              items: {
+                showSortIcons: {
+                  type: "boolean",
+                  ref: "sortOptions.showSortIcons",
+                  label: "Show Sort Icons",
+                  defaultValue: true,
+                },
+                defaultSortDirection: {
+                  type: "string",
+                  component: "dropdown",
+                  label: "Default Sort Direction",
+                  ref: "sortOptions.defaultDirection",
+                  options: [
+                    {
+                      value: "asc",
+                      label: "Ascending",
+                    },
+                    {
+                      value: "desc",
+                      label: "Descending",
+                    },
+                  ],
+                  defaultValue: "asc",
+                },
+              },
+            },
             // Keep only the writeback column labels section
             columnLabels: {
               type: "items",

@@ -3,6 +3,7 @@ import {
   useLayout,
   useEffect,
   useState,
+  useModel,
 } from "@nebula.js/stardust";
 import properties from "./object-properties";
 import data from "./data";
@@ -51,6 +52,12 @@ function processData({ layout }) {
           layout.customLabels.dimensions &&
           layout.customLabels.dimensions[dimIndex]
         ),
+        sortDirection:
+          dim.qSortIndicator === "A"
+            ? "asc"
+            : dim.qSortIndicator === "D"
+            ? "desc"
+            : "",
       },
     })),
     // Convert Qlik measures to table headers with better labels
@@ -74,6 +81,8 @@ function processData({ layout }) {
           layout.customLabels.measures &&
           layout.customLabels.measures[measIndex]
         ),
+        // Check if this measure is the current sort column
+        sortDirection: "",
       },
     })),
     // Add custom writeback columns that aren't part of the Qlik data model
@@ -167,6 +176,10 @@ export default function supernova(galaxy) {
       const layout = useLayout();
       console.log("index.js: Got layout", layout);
 
+      // Get the model for Qlik interactions (added for sorting functionality)
+      const model = useModel();
+      console.log("index.js: Got model", model);
+
       // State for the processed table data
       const [tableData, setTableData] = useState(null);
       // State to track user edits in writeback cells
@@ -206,6 +219,81 @@ export default function supernova(galaxy) {
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
 
+        // Function to apply sorting
+        const applySort = (headerObj, direction) => {
+          if (headerObj.type === "dimension") {
+            // Find the dimension index
+            const dimensions = layout.qHyperCube.qDimensionInfo || [];
+            const dimIndex = dimensions.findIndex(
+              (d) => d.qFallbackTitle === headerObj.id
+            );
+
+            if (dimIndex !== -1) {
+              // Create direction value for Qlik (1 for asc, -1 for desc)
+              const sortValue =
+                direction === "asc" ? 1 : direction === "desc" ? -1 : 0;
+
+              // Create sort criteria
+              const sortCriteria = {
+                qSortByState: 0,
+                qSortByFrequency: 0,
+                qSortByNumeric: 0,
+                qSortByAscii: sortValue,
+                qSortByLoadOrder: 0,
+                qSortByExpression: 0,
+              };
+
+              console.log(
+                `index.js: Applying ${direction} sort for dimension ${headerObj.id}`
+              );
+
+              // Use both applyPatches and beginSelections for better sorting
+              model.beginSelections(["/qHyperCubeDef"]);
+              model.applyPatches(
+                [
+                  {
+                    qPath: `/qHyperCubeDef/qDimensions/${dimIndex}/qDef/qSortCriterias/0`,
+                    qOp: "replace",
+                    qValue: JSON.stringify(sortCriteria),
+                  },
+                ],
+                true
+              );
+              model.endSelections(true);
+            }
+          } else if (headerObj.type === "measure") {
+            // For measures
+            const dimensions = layout.qHyperCube.qDimensionInfo || [];
+            const measures = layout.qHyperCube.qMeasureInfo || [];
+            const measIndex = measures.findIndex(
+              (m) => m.qFallbackTitle === headerObj.id
+            );
+
+            if (measIndex !== -1) {
+              // Calculate the sortIndex for this measure
+              const sortIndex = dimensions.length + measIndex;
+
+              console.log(
+                `index.js: Applying sort to measure ${headerObj.id} at index ${sortIndex}`
+              );
+
+              // Use beginSelections for better sorting
+              model.beginSelections(["/qHyperCubeDef"]);
+              model.applyPatches(
+                [
+                  {
+                    qPath: "/qHyperCubeDef/qInterColumnSortOrder",
+                    qOp: "replace",
+                    qValue: JSON.stringify([sortIndex]),
+                  },
+                ],
+                true
+              );
+              model.endSelections(true);
+            }
+          }
+        };
+
         tableData.headers.forEach((header) => {
           console.log(`index.js: Creating header for ${header.id}`);
 
@@ -220,9 +308,62 @@ export default function supernova(galaxy) {
             header.type !== "writeback"
           ) {
             th.className = "sortable";
+
+            // Create sort icon container
+            const sortIconContainer = document.createElement("div");
+            sortIconContainer.className = "sort-icon-container";
+
+            // Create ascending sort icon (▲)
+            const ascIcon = document.createElement("span");
+            ascIcon.className = "sort-icon asc-icon";
+            ascIcon.textContent = "▲";
+            ascIcon.title = "Sort ascending";
+
+            // Create descending sort icon (▼)
+            const descIcon = document.createElement("span");
+            descIcon.className = "sort-icon desc-icon";
+            descIcon.textContent = "▼";
+            descIcon.title = "Sort descending";
+
+            // Add icons if they should be shown
+            if (layout.sortOptions?.showSortIcons !== false) {
+              sortIconContainer.appendChild(ascIcon);
+              sortIconContainer.appendChild(descIcon);
+              th.appendChild(sortIconContainer);
+            }
+
+            // Check if this column is sorted and highlight the appropriate icon
+            if (header.meta && header.meta.sortDirection) {
+              if (header.meta.sortDirection === "asc") {
+                ascIcon.classList.add("active");
+              } else if (header.meta.sortDirection === "desc") {
+                descIcon.classList.add("active");
+              }
+            }
+
+            // Add click handler to the whole header
             th.addEventListener("click", () => {
               console.log(`index.js: Sort clicked for ${header.id}`);
-              // Sorting logic would be implemented here
+
+              // Get the default sort direction from properties or use ascending
+              const defaultDirection =
+                layout.sortOptions?.defaultDirection || "asc";
+
+              // Apply the sort using the default direction
+              applySort(header, defaultDirection);
+            });
+
+            // Add click handlers to the sort icons
+            ascIcon.addEventListener("click", (e) => {
+              e.stopPropagation(); // Prevent header click from firing
+              console.log(`index.js: Sort ascending clicked for ${header.id}`);
+              applySort(header, "asc");
+            });
+
+            descIcon.addEventListener("click", (e) => {
+              e.stopPropagation(); // Prevent header click from firing
+              console.log(`index.js: Sort descending clicked for ${header.id}`);
+              applySort(header, "desc");
             });
           }
 
@@ -332,11 +473,42 @@ export default function supernova(galaxy) {
             text-align: left;
             border-bottom: 2px solid #ddd;
             cursor: default;
+            position: relative;
           }
           
           /* Sortable header styling */
           .writeback-table th.sortable {
             cursor: pointer;
+            padding-right: 32px; /* Make room for sort icons */
+          }
+          
+          /* Sort icon container */
+          .sort-icon-container {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
+          
+          /* Sort icon styling */
+          .sort-icon {
+            font-size: 10px;
+            color: #aaa;
+            cursor: pointer;
+            margin: -2px 0;
+          }
+          
+          /* Active sort icon */
+          .sort-icon.active {
+            color: #333;
+          }
+          
+          /* Hover effect for sort icons */
+          .sort-icon:hover {
+            color: #666;
           }
           
           /* Cell styling */
@@ -370,7 +542,7 @@ export default function supernova(galaxy) {
 
         element.appendChild(style);
         console.log("index.js: Styles added to DOM");
-      }, [tableData, editedData, layout]);
+      }, [tableData, editedData, layout, model]); // Added model to dependency array
 
       // Cleanup function when component is unmounted
       return () => {
