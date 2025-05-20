@@ -349,11 +349,16 @@ export default function supernova(galaxy) {
       };
 
       // Function to save all changes to localStorage
-
       const saveAllChanges = () => {
         console.log("Saving all changes:", editedData);
 
-        // Always save, regardless of hasUnsavedChanges state
+        // Force enable any Save All Changes buttons
+        const saveButtons = document.querySelectorAll(".save-all-button");
+        saveButtons.forEach((btn) => {
+          btn.disabled = true; // Set to disabled after saving
+        });
+
+        // Store in localStorage for persistence between sessions
         try {
           const savedData = {
             timestamp: new Date().toISOString(),
@@ -378,7 +383,7 @@ export default function supernova(galaxy) {
             saveMessage.remove();
           }, 3000);
 
-          // Reset the flag after saving
+          // IMPORTANT: Reset the unsaved changes flag
           setHasUnsavedChanges(false);
         } catch (err) {
           console.error("Error saving to local storage:", err);
@@ -1100,6 +1105,7 @@ export default function supernova(galaxy) {
             paginationContainer.appendChild(paginationControls);
 
             // Add save changes button for writeback
+
             if (layout.tableOptions?.allowWriteback) {
               const saveButtonContainer = document.createElement("div");
               saveButtonContainer.className = "save-button-container";
@@ -1107,42 +1113,17 @@ export default function supernova(galaxy) {
               const saveButton = document.createElement("button");
               saveButton.className = "save-all-button";
               saveButton.textContent = "Save All Changes";
-              saveButton.disabled = false; // Just always enable it to be safe
 
-              saveButton.addEventListener("click", function () {
-                // Get the current edited data directly
-                const currentEditedData = { ...editedData };
+              // Start with the button disabled (gray)
+              saveButton.disabled = !hasUnsavedChanges;
 
-                // Save it immediately
-                try {
-                  const savedData = {
-                    timestamp: new Date().toISOString(),
-                    changes: currentEditedData,
-                  };
-                  localStorage.setItem(
-                    "qlik-writeback-table-data",
-                    JSON.stringify(savedData)
-                  );
-                  console.log("Changes saved to local storage");
+              // Modified click handler to disable the button immediately after saving
+              saveButton.addEventListener("click", () => {
+                // Disable the button immediately
+                saveButton.disabled = true;
 
-                  // Show a success message to the user
-                  const saveMessage = document.createElement("div");
-                  saveMessage.className = "save-message";
-                  saveMessage.textContent = "Changes saved successfully!";
-                  document
-                    .querySelector(".writeback-table-container")
-                    .appendChild(saveMessage);
-
-                  // Remove the message after 3 seconds
-                  setTimeout(() => {
-                    saveMessage.remove();
-                  }, 3000);
-
-                  // Update the state flag afterward
-                  setHasUnsavedChanges(false);
-                } catch (err) {
-                  console.error("Error saving to local storage:", err);
-                }
+                // Then call the save function
+                saveAllChanges();
               });
 
               saveButtonContainer.appendChild(saveButton);
