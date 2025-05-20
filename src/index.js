@@ -1173,6 +1173,7 @@ export default function supernova(galaxy) {
               padding: 10px 8px;
               text-align: left;
               border-bottom: 2px solid #ddd;
+              border-right: 1px solid #ddd;
               cursor: default;
               position: relative;
               font-weight: bold;
@@ -1181,6 +1182,12 @@ export default function supernova(galaxy) {
               z-index: 10;
             }
             
+            /* Add left border to the first cell in each row */
+            .writeback-table td:first-child,
+            .writeback-table th:first-child {
+               border-left: 1px solid #ddd;
+            }
+
             /* Sortable header styling */
             .writeback-table th.sortable {
               cursor: pointer;
@@ -1220,6 +1227,7 @@ export default function supernova(galaxy) {
             .writeback-table td {
               padding: 8px;
               border-bottom: 1px solid #ddd;
+              border-right: 1px solid #ddd; 
               transition: background-color 0.15s ease;
             }
             
