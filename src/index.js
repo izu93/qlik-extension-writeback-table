@@ -917,8 +917,52 @@ export default function supernova(galaxy) {
                   td.appendChild(input);
                 }
               } else {
-                // Regular cell for dimensions and measures (non-editable)
-                td.textContent = cellData.value;
+                // Special formatting for Probability of Churn column
+                if (header.id === "Probability of Churn") {
+                  // Create a container for the bar and text
+                  const barContainer = document.createElement("div");
+                  barContainer.className = "churn-bar-container";
+
+                  // Add the text display for the value
+                  const valueText = document.createElement("span");
+                  valueText.className = "churn-value-text";
+                  valueText.textContent = cellData.value;
+
+                  // Create the progress bar
+                  const progressBar = document.createElement("div");
+                  progressBar.className = "churn-progress-bar";
+
+                  // Get the numeric value (removing % symbol if present)
+                  let numValue = parseFloat(cellData.value.replace("%", ""));
+                  if (isNaN(numValue)) {
+                    // Try getting the numeric value from the qNum property if available
+                    numValue = cellData.qNum || 0;
+                  }
+
+                  // Set the width of the progress bar based on the value
+                  progressBar.style.width = `${numValue}%`;
+
+                  // Set color based on the value
+                  if (numValue >= 90) {
+                    progressBar.classList.add("high-risk");
+                  } else if (numValue >= 30) {
+                    progressBar.classList.add("medium-risk");
+                  } else if (numValue > 5) {
+                    progressBar.classList.add("low-risk");
+                  } else {
+                    progressBar.classList.add("very-low-risk");
+                  }
+
+                  // Add elements to the container
+                  barContainer.appendChild(progressBar);
+                  barContainer.appendChild(valueText);
+
+                  // Add the container to the cell
+                  td.appendChild(barContainer);
+                } else {
+                  // Regular cell for dimensions and measures (non-editable)
+                  td.textContent = cellData.value;
+                }
 
                 // Add selection capability for dimension cells if enabled
                 if (
@@ -1474,6 +1518,51 @@ export default function supernova(galaxy) {
 
             .thumbs-down-icon {
               color: #f44336;
+            }
+              /* Churn probability bar styling */
+            .churn-bar-container {
+              position: relative;
+              height: 20px;
+              width: 100%;
+              background-color: #f3f3f3;
+              border-radius: 4px;
+              overflow: hidden;
+            }
+
+            .churn-progress-bar {
+              position: absolute;
+              height: 100%;
+              left: 0;
+              top: 0;
+              border-radius: 4px;
+            }
+
+            .churn-value-text {
+              position: absolute;
+              left: 50%;
+              top: 50%;
+              transform: translate(-50%, -50%);
+              color: #333;
+              font-weight: bold;
+              text-shadow: 0 0 2px white;
+              z-index: 1;
+            }
+
+            /* Bar colors */
+            .high-risk {
+              background-color: #ff4d4d;
+            }
+
+            .medium-risk {
+              background-color: #ff9900;
+            }
+
+            .low-risk {
+              background-color: #2ecc71;
+            }
+
+            .very-low-risk {
+              background-color: #27ae60;
             }
           `;
 
