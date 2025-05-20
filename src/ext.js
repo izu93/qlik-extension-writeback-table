@@ -75,7 +75,51 @@ export default function ext(galaxy) {
                 },
               },
             },
-            // Keep only the writeback column labels section
+            // Add pagination section
+            paginationSection: {
+              type: "items",
+              label: "Pagination Settings",
+              items: {
+                enablePagination: {
+                  type: "boolean",
+                  ref: "paginationOptions.enabled",
+                  label: "Enable Pagination",
+                  defaultValue: true,
+                },
+                pageSize: {
+                  type: "string",
+                  component: "dropdown",
+                  label: "Rows Per Page",
+                  ref: "paginationOptions.pageSize",
+                  options: [
+                    {
+                      value: 25,
+                      label: "25 rows",
+                    },
+                    {
+                      value: 50,
+                      label: "50 rows",
+                    },
+                    {
+                      value: 100,
+                      label: "100 rows",
+                    },
+                    {
+                      value: 250,
+                      label: "250 rows",
+                    },
+                  ],
+                  defaultValue: 100,
+                  show: function (layout) {
+                    return (
+                      layout.paginationOptions &&
+                      layout.paginationOptions.enabled
+                    );
+                  },
+                },
+              },
+            },
+            // Keep the writeback column labels section
             columnLabels: {
               type: "items",
               label: "Writeback Column Labels",

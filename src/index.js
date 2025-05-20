@@ -5,6 +5,7 @@ import {
   useState,
   useModel,
   useSelections,
+  useConstraints,
 } from "@nebula.js/stardust";
 import properties from "./object-properties";
 import data from "./data";
@@ -15,27 +16,27 @@ import ext from "./ext";
  * Takes the layout object from useLayout hook and extracts dimensions, measures,
  * and adds writeback columns
  */
-function processData({ layout }) {
+function processData({ layout, pageData }) {
   console.log("processData: Processing layout data", layout);
 
-  // Extract hypercube data from the layout (matrix of rows/columns)
-  const qMatrix = layout.qHyperCube.qDataPages[0]
-    ? layout.qHyperCube.qDataPages[0].qMatrix
-    : [];
-  console.log("processData: Extracted qMatrix", qMatrix);
+  // Use provided pageData if available, otherwise use data from layout
+  const qMatrix =
+    pageData ||
+    (layout.qHyperCube.qDataPages[0]
+      ? layout.qHyperCube.qDataPages[0].qMatrix
+      : []);
+  console.log("processData: Using qMatrix with", qMatrix.length, "rows");
 
   // Get metadata for dimensions and measures
-  // Dimensions are categories/attributes, Measures are calculations/metrics
   const dimensions = layout.qHyperCube.qDimensionInfo || [];
   const measures = layout.qHyperCube.qMeasureInfo || [];
   console.log("processData: Dimensions and Measures", { dimensions, measures });
 
-  // Create headers array for the table - combine dimensions, measures and writeback columns
+  // Create headers array for the table
   const headers = [
-    // Convert Qlik dimensions to table headers with better labels
+    // Convert Qlik dimensions to table headers
     ...dimensions.map((dim, dimIndex) => ({
       id: dim.qFallbackTitle,
-      // Check for custom label in our extension properties first
       label:
         (layout.customLabels &&
           layout.customLabels.dimensions &&
@@ -44,7 +45,6 @@ function processData({ layout }) {
         dim.qLabelExpression ||
         dim.qFallbackTitle,
       type: "dimension",
-      // Store more metadata for possible future use
       meta: {
         description: dim.qDesc,
         fieldName: dim.qGroupFieldDefs && dim.qGroupFieldDefs[0],
@@ -61,10 +61,9 @@ function processData({ layout }) {
             : "",
       },
     })),
-    // Convert Qlik measures to table headers with better labels
+    // Convert Qlik measures to table headers
     ...measures.map((meas, measIndex) => ({
       id: meas.qFallbackTitle,
-      // Check for custom label in our extension properties first
       label:
         (layout.customLabels &&
           layout.customLabels.measures &&
@@ -73,7 +72,6 @@ function processData({ layout }) {
         meas.qLabelExpression ||
         meas.qFallbackTitle,
       type: "measure",
-      // Store more metadata for possible future use
       meta: {
         description: meas.qDesc,
         expression: meas.qDef,
@@ -82,7 +80,6 @@ function processData({ layout }) {
           layout.customLabels.measures &&
           layout.customLabels.measures[measIndex]
         ),
-        // Check if this measure is the current sort column
         sortDirection: "",
       },
     })),
@@ -106,32 +103,31 @@ function processData({ layout }) {
 
   console.log("processData: Generated headers", headers);
 
-  // Transform the Qlik data matrix into row objects with properties for each column
+  // Transform the Qlik data matrix into row objects
   const rows = qMatrix.map((row, rowIndex) => {
     const formattedRow = {};
 
-    // Process dimension values - these will be selectable in the UI
+    // Process dimension values
     dimensions.forEach((dim, dimIndex) => {
       formattedRow[dim.qFallbackTitle] = {
-        value: row[dimIndex].qText, // Display text
-        qElemNumber: row[dimIndex].qElemNumber, // Used for selections
-        selectable: true, // Allow user to select this cell
+        value: row[dimIndex].qText,
+        qElemNumber: row[dimIndex].qElemNumber,
+        selectable: true,
       };
     });
 
-    // Process measure values - these are typically not selectable
+    // Process measure values
     measures.forEach((meas, measIndex) => {
       const dimCount = dimensions.length;
       formattedRow[meas.qFallbackTitle] = {
-        value: row[dimCount + measIndex].qText, // Formatted text value
-        qNum: row[dimCount + measIndex].qNum, // Numeric value
-        selectable: false, // Measures aren't selectable in Qlik
+        value: row[dimCount + measIndex].qText,
+        qNum: row[dimCount + measIndex].qNum,
+        selectable: false,
       };
     });
 
     // Add empty writeback columns if enabled
     if (layout.tableOptions?.allowWriteback) {
-      // Add empty writeback columns (status and comments) for user input
       formattedRow.status = {
         value: "",
         editable: true,
@@ -154,8 +150,6 @@ function processData({ layout }) {
 
 /**
  * Main extension entry point - the supernova function
- * This is called by Qlik to initialize the extension
- * @param {object} galaxy - Contains environment information from Qlik
  */
 export default function supernova(galaxy) {
   console.log(
@@ -166,14 +160,13 @@ export default function supernova(galaxy) {
   return {
     // Define the extension's data requirements and properties
     qae: {
-      properties, // Default and initial properties
-      data, // Data target definitions (dimensions/measures)
+      properties,
+      data,
     },
-    ext: ext(galaxy), // Extension configuration and property panel
+    ext: ext(galaxy),
 
     /**
      * Component function that renders the visualization
-     * This is called when the extension is added to a sheet
      */
     component() {
       console.log("index.js: Component function called");
@@ -182,17 +175,20 @@ export default function supernova(galaxy) {
       const element = useElement();
       console.log("index.js: Got element", element);
 
-      // Get the layout data from Qlik (contains hypercube, properties, etc.)
+      // Get the layout data from Qlik
       const layout = useLayout();
       console.log("index.js: Got layout", layout);
 
-      // Get the model for Qlik interactions (added for sorting functionality)
+      // Get the model for Qlik interactions
       const model = useModel();
       console.log("index.js: Got model", model);
 
       // Get selections for selection functionality
       const selections = useSelections();
       console.log("index.js: Got selections", selections);
+
+      // Get constraints for responsive design
+      const constraints = useConstraints();
 
       // State for the processed table data
       const [tableData, setTableData] = useState(null);
@@ -201,15 +197,155 @@ export default function supernova(galaxy) {
       // State to track selected row
       const [selectedRow, setSelectedRow] = useState(null);
 
-      // Process the data when layout changes (selections, property changes, etc.)
+      // Pagination state
+      const [currentPage, setCurrentPage] = useState(1);
+      const [totalRows, setTotalRows] = useState(0);
+      const [isLoading, setIsLoading] = useState(false);
+      const [paginationInfo, setPaginationInfo] = useState({
+        pageSize: 100,
+        totalPages: 1,
+        currentPageFirstRow: 1,
+        currentPageLastRow: 100,
+      });
+
+      // Get the default page size from properties or use 100
+      const getPageSize = () => {
+        return (
+          (layout.paginationOptions && layout.paginationOptions.pageSize) ||
+          (layout.tableOptions && layout.tableOptions.pageSize) ||
+          100
+        );
+      };
+
+      // Calculate total pages
+      const calculatePaginationInfo = (
+        totalRowCount,
+        pageSize,
+        currentPageNum
+      ) => {
+        const totalPages = Math.max(1, Math.ceil(totalRowCount / pageSize));
+        const firstRow = Math.min(
+          (currentPageNum - 1) * pageSize + 1,
+          totalRowCount
+        );
+        const lastRow = Math.min(currentPageNum * pageSize, totalRowCount);
+
+        return {
+          pageSize,
+          totalPages,
+          currentPageFirstRow: firstRow,
+          currentPageLastRow: lastRow,
+        };
+      };
+
+      // Fetch data for a specific page
+      const fetchPageData = async (page) => {
+        try {
+          setIsLoading(true);
+          const pageSize = getPageSize();
+          const qHeight = pageSize;
+          const qTop = (page - 1) * pageSize;
+
+          console.log(
+            `Fetching page ${page} data: top=${qTop}, height=${qHeight}`
+          );
+
+          // Request data for the current page
+          const dataPages = await model.getHyperCubeData("/qHyperCubeDef", [
+            {
+              qTop: qTop,
+              qLeft: 0,
+              qWidth: 10, // Match the width from object-properties
+              qHeight: qHeight,
+            },
+          ]);
+
+          console.log(`Received data for page ${page}:`, dataPages[0]);
+          setIsLoading(false);
+          return dataPages[0].qMatrix;
+        } catch (error) {
+          console.error("Error fetching page data:", error);
+          setIsLoading(false);
+          return [];
+        }
+      };
+
+      // Handle page change
+      const changePage = async (newPage) => {
+        try {
+          console.log(
+            `Changing to page ${newPage} (current: ${currentPage}, total: ${paginationInfo.totalPages})`
+          );
+
+          if (newPage < 1 || newPage > paginationInfo.totalPages) {
+            console.log(`Invalid page number ${newPage}`);
+            return; // Don't process invalid pages
+          }
+
+          // Fetch data for the new page
+          const pageData = await fetchPageData(newPage);
+
+          console.log(
+            `Processing data for page ${newPage}, got ${pageData.length} rows`
+          );
+
+          // Process the new data
+          const formattedData = processData({ layout, pageData });
+          setTableData(formattedData);
+          setCurrentPage(newPage);
+
+          // Update pagination display
+          const pageSize = getPageSize();
+          const newPaginationInfo = calculatePaginationInfo(
+            totalRows,
+            pageSize,
+            newPage
+          );
+          setPaginationInfo(newPaginationInfo);
+
+          // Reset edited data for the new page
+          setEditedData({});
+          setSelectedRow(null);
+
+          console.log(
+            `Page change complete. Now on page ${newPage} of ${newPaginationInfo.totalPages}`
+          );
+        } catch (error) {
+          console.error("Error changing page:", error);
+        }
+      };
+
+      // Get initial data when layout changes
       useEffect(() => {
         console.log("index.js: Layout effect triggered", layout);
 
         if (layout && layout.qHyperCube) {
           console.log("index.js: Processing layout to format data");
+
+          // Get total row count from the hypercube
+          const totalRowCount = layout.qHyperCube.qSize.qcy;
+          console.log(`Total rows in hypercube: ${totalRowCount}`);
+          setTotalRows(totalRowCount);
+
+          // Reset to page 1 when layout changes (e.g., selections, filtering)
+          setCurrentPage(1);
+
+          // Calculate pagination info
+          const pageSize = getPageSize();
+          const paginationInfo = calculatePaginationInfo(
+            totalRowCount,
+            pageSize,
+            1
+          );
+          setPaginationInfo(paginationInfo);
+
+          // Process data from the first page already in the layout
           const formattedData = processData({ layout });
-          console.log("index.js: Formatted data", formattedData);
           setTableData(formattedData);
+
+          console.log(
+            `Pagination initialized: ${paginationInfo.totalPages} pages of ${pageSize} rows each`
+          );
         }
       }, [layout]);
 
@@ -240,9 +376,20 @@ export default function supernova(galaxy) {
           // Clear previous content
           element.innerHTML = "";
 
+          // Create container for the table and pagination
+          const container = document.createElement("div");
+          container.className = "writeback-table-container";
+          element.appendChild(container);
+
+          // Create table wrapper for scrolling
+          const tableWrapper = document.createElement("div");
+          tableWrapper.className = "table-scroll-wrapper";
+          container.appendChild(tableWrapper);
+
           // Create table DOM structure
           const table = document.createElement("table");
           table.className = "writeback-table";
+          tableWrapper.appendChild(table);
 
           // ---- TABLE HEADER SECTION ----
           const thead = document.createElement("thead");
@@ -448,10 +595,9 @@ export default function supernova(galaxy) {
 
           // ---- TABLE BODY SECTION ----
           const tbody = document.createElement("tbody");
+          table.appendChild(tbody);
 
           tableData.rows.forEach((row, rowIndex) => {
-            // console.log(`index.js: Creating row ${rowIndex}`);
-
             const tr = document.createElement("tr");
             tr.setAttribute("data-row", rowIndex);
 
@@ -512,10 +658,6 @@ export default function supernova(galaxy) {
                   cellData.selectable &&
                   layout.tableOptions?.allowSelections
                 ) {
-                  /*  console.log(
-                    `index.js: Creating selectable cell for ${header.id} at row ${rowIndex}`
-                  ); */
-
                   td.className = "selectable";
                   td.setAttribute(
                     "data-col",
@@ -540,11 +682,13 @@ export default function supernova(galaxy) {
                       }
 
                       // Apply selection - this is the method that works
-                      const selectedRows = [rowIndex];
+                      const globalRowIndex =
+                        (currentPage - 1) * paginationInfo.pageSize + rowIndex;
+                      const selectedRows = [globalRowIndex];
 
                       if (header.type === "dimension") {
                         try {
-                          console.log(`Selecting row ${rowIndex}`);
+                          console.log(`Selecting row ${globalRowIndex}`);
 
                           // Use requestAnimationFrame to ensure visual update happens before selection processing
                           requestAnimationFrame(() => {
@@ -570,20 +714,156 @@ export default function supernova(galaxy) {
             tbody.appendChild(tr);
           });
 
-          table.appendChild(tbody);
+          // Create loading overlay for pagination
+          const loadingOverlay = document.createElement("div");
+          loadingOverlay.className =
+            "loading-overlay" + (isLoading ? " active" : "");
+          loadingOverlay.innerHTML = `
+            <div class="spinner"></div>
+            <div class="loading-text">Loading data...</div>
+          `;
+          container.appendChild(loadingOverlay);
 
-          // Add the complete table to the DOM
-          element.appendChild(table);
-          console.log("index.js: Table added to DOM");
+          // Only show pagination if enabled in properties
+          const paginationEnabled = layout.paginationOptions?.enabled !== false;
 
-          // Add CSS styling for the table
+          // Create pagination controls if pagination is enabled and we have more than one page
+          if (paginationEnabled && paginationInfo.totalPages > 0) {
+            console.log(
+              `Creating pagination controls. Total pages: ${paginationInfo.totalPages}`
+            );
+
+            // Create pagination container
+            const paginationContainer = document.createElement("div");
+            paginationContainer.className = "pagination-container";
+
+            // Display rows info (e.g., "Showing 1-100 of 414 records")
+            const rowsInfo = document.createElement("div");
+            rowsInfo.className = "rows-info";
+            rowsInfo.textContent = `Showing ${paginationInfo.currentPageFirstRow}–${paginationInfo.currentPageLastRow} of ${totalRows} records`;
+            paginationContainer.appendChild(rowsInfo);
+
+            // Create pagination buttons container
+            const paginationControls = document.createElement("div");
+            paginationControls.className = "pagination-controls";
+
+            // Previous page button
+            const prevButton = document.createElement("button");
+            prevButton.className =
+              "pagination-button prev-button" +
+              (currentPage <= 1 ? " disabled" : "");
+            prevButton.innerHTML = "← Prev";
+            prevButton.disabled = currentPage <= 1;
+            prevButton.addEventListener("click", () => {
+              if (currentPage > 1) {
+                changePage(currentPage - 1);
+              }
+            });
+            paginationControls.appendChild(prevButton);
+
+            // Page number input
+            const pageNumberContainer = document.createElement("div");
+            pageNumberContainer.className = "page-number-container";
+
+            const pageInput = document.createElement("input");
+            pageInput.type = "text";
+            pageInput.className = "page-input";
+            pageInput.value = currentPage;
+            pageInput.size = 3;
+            pageInput.addEventListener("keydown", (e) => {
+              if (e.key === "Enter") {
+                const newPage = parseInt(e.target.value, 10);
+                if (
+                  !isNaN(newPage) &&
+                  newPage > 0 &&
+                  newPage <= paginationInfo.totalPages
+                ) {
+                  changePage(newPage);
+                } else {
+                  // Invalid page, reset to current
+                  e.target.value = currentPage;
+                }
+              }
+            });
+            pageNumberContainer.appendChild(pageInput);
+
+            const pageTotal = document.createElement("span");
+            pageTotal.className = "page-total";
+            pageTotal.textContent = ` / ${paginationInfo.totalPages}`;
+            pageNumberContainer.appendChild(pageTotal);
+
+            paginationControls.appendChild(pageNumberContainer);
+
+            // Next page button
+            const nextButton = document.createElement("button");
+            nextButton.className =
+              "pagination-button next-button" +
+              (currentPage >= paginationInfo.totalPages ? " disabled" : "");
+            nextButton.innerHTML = "Next →";
+            nextButton.disabled = currentPage >= paginationInfo.totalPages;
+            nextButton.addEventListener("click", () => {
+              if (currentPage < paginationInfo.totalPages) {
+                changePage(currentPage + 1);
+              }
+            });
+            paginationControls.appendChild(nextButton);
+
+            paginationContainer.appendChild(paginationControls);
+
+            // Add save changes button (for writeback)
+          /*   if (layout.tableOptions?.allowWriteback) {
+              const saveButtonContainer = document.createElement("div");
+              saveButtonContainer.className = "save-button-container";
+
+              const saveButton = document.createElement("button");
+              saveButton.className = "save-button";
+              saveButton.textContent = "Save All Changes";
+              saveButton.addEventListener("click", () => {
+                alert("Saving changes functionality would go here");
+                // Here you would implement the actual save logic
+                console.log("Saving changes:", editedData);
+              });
+
+              saveButtonContainer.appendChild(saveButton);
+              paginationContainer.appendChild(saveButtonContainer);
+            } */
+
+            container.appendChild(paginationContainer);
+            console.log("Pagination controls added to DOM");
+          } else {
+            console.log(
+              "Pagination disabled or only one page - not showing controls"
+            );
+          }
+
+          // Add CSS styling
           const style = document.createElement("style");
           style.textContent = `
+            /* Container styling */
+            .writeback-table-container {
+              position: relative;
+              width: 100%;
+              height: 100%;
+              display: flex;
+              flex-direction: column;
+              box-sizing: border-box;
+              border: 1px solid #ddd;
+              font-family: Arial, sans-serif;
+            }
+            
+            /* Table scroll wrapper - THIS IS CRUCIAL FOR SCROLLING */
+            .table-scroll-wrapper {
+              flex: 1;
+              overflow-y: auto;
+              overflow-x: auto;
+              min-height: 100px;
+              max-height: calc(100% - 50px); /* Leave space for pagination */
+            }
+            
             /* Base table styling */
             .writeback-table {
               width: 100%;
               border-collapse: collapse;
-              font-family: Arial, sans-serif;
             }
             
             /* Header styling */
@@ -595,6 +875,9 @@ export default function supernova(galaxy) {
               cursor: default;
               position: relative;
               font-weight: bold;
+              position: sticky;
+              top: 0;
+              z-index: 10;
             }
             
             /* Sortable header styling */
@@ -668,6 +951,150 @@ export default function supernova(galaxy) {
               box-sizing: border-box;
               border: 1px solid #ddd;
             }
+            
+            /* Explicit scrollbar styling for better visibility */
+            .table-scroll-wrapper::-webkit-scrollbar {
+              width: 10px;
+              height: 10px;
+            }
+            
+            .table-scroll-wrapper::-webkit-scrollbar-track {
+              background: #f0f0f0;
+              border-radius: 4px;
+            }
+            
+            .table-scroll-wrapper::-webkit-scrollbar-thumb {
+              background-color: #aaa;
+              border-radius: 4px;
+              border: 2px solid #f0f0f0;
+            }
+            
+            .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+              background-color: #888;
+            }
+            
+            /* Pagination styling */
+            .pagination-container {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 10px;
+              background-color: #f8f8f8;
+              border-top: 1px solid #ddd;
+              min-height: 40px;
+              flex-shrink: 0; /* Prevent pagination from being compressed */
+            }
+            
+            .rows-info {
+              color: #666;
+              font-size: 14px;
+            }
+            
+            .pagination-controls {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+            }
+            
+            .pagination-button {
+              padding: 6px 12px;
+              background-color: #fff;
+              border: 1px solid #ddd;
+              border-radius: 3px;
+              cursor: pointer;
+              font-size: 14px;
+              transition: all 0.2s ease;
+            }
+            
+            .pagination-button:hover:not(.disabled) {
+              background-color: #f0f0f0;
+              border-color: #ccc;
+            }
+            
+            .pagination-button.disabled {
+              opacity: 0.5;
+              cursor: not-allowed;
+            }
+            
+            .page-number-container {
+              display: flex;
+              align-items: center;
+            }
+            
+            .page-input {
+              width: 50px;
+              padding: 6px;
+              text-align: center;
+              border: 1px solid #ddd;
+              border-radius: 3px;
+            }
+            
+            .page-total {
+              color: #666;
+            }
+            
+            .save-button-container {
+              margin-left: auto;
+            }
+            
+            .save-button {
+              padding: 8px 16px;
+              background-color: #4CAF50;
+              color: white;
+              border: none;
+              border-radius: 3px;
+              cursor: pointer;
+              font-weight: bold;
+              transition: background-color 0.2s ease;
+            }
+            
+            .save-button:hover {
+              background-color: #45a049;
+            }
+            
+            /* Loading overlay */
+            .loading-overlay {
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background-color: rgba(255, 255, 255, 0.7);
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              align-items: center;
+              z-index: 100;
+              visibility: hidden;
+              opacity: 0;
+              transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+            }
+            
+            .loading-overlay.active {
+              visibility: visible;
+              opacity: 1;
+              transition-delay: 0s;
+            }
+            
+            .spinner {
+              border: 4px solid #f3f3f3;
+              border-top: 4px solid #3498db;
+              border-radius: 50%;
+              width: 40px;
+              height: 40px;
+              animation: spin 1s linear infinite;
+            }
+            
+            .loading-text {
+              margin-top: 10px;
+              font-weight: bold;
+              color: #333;
+            }
+            
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
           `;
 
           element.appendChild(style);
@@ -678,7 +1105,17 @@ export default function supernova(galaxy) {
             <p>Error rendering table: ${err.message}</p>
           </div>`;
         }
-      }, [tableData, editedData, layout, model, selectedRow]);
+      }, [
+        tableData,
+        editedData,
+        layout,
+        model,
+        selectedRow,
+        currentPage,
+        totalRows,
+        paginationInfo,
+        isLoading,
+      ]);
 
       // Listen for selection state changes
       useEffect(() => {
