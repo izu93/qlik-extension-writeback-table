@@ -207,6 +207,8 @@ export default function supernova(galaxy) {
         currentPageFirstRow: 1,
         currentPageLastRow: 100,
       });
+      //Add a new state variable for tracking selection mode
+      const [wasInSelectionMode, setWasInSelectionMode] = useState(false);
 
       // Get the default page size from properties or use 100
       const getPageSize = () => {
@@ -269,6 +271,9 @@ export default function supernova(galaxy) {
           return [];
         }
       };
+      // Add a new state variable to track user-initiated page changes
+
+      const [userChangedPage, setUserChangedPage] = useState(false);
 
       // Handle page change
       const changePage = async (newPage) => {
@@ -282,6 +287,24 @@ export default function supernova(galaxy) {
             return; // Don't process invalid pages
           }
 
+          // Set flag BEFORE anything else
+          setUserChangedPage(true);
+
+          // Delay resetting the user changed page flag - INCREASED to 2000ms (2 seconds)
+          // This gives enough time for all layout updates to complete
+          const resetTimer = setTimeout(() => {
+            setUserChangedPage(false);
+            console.log("Resetting userChangedPage flag");
+          }, 2000);
+
+          // Store the current timer so we can clear it if needed
+          window.resetPageFlagTimer = resetTimer;
+
+          console.log("Starting page change, userChangedPage =", true);
+
+          // Set page before fetching data to avoid visual jumps
+          setCurrentPage(newPage);
+
           // Fetch data for the new page
           const pageData = await fetchPageData(newPage);
 
@@ -292,7 +315,6 @@ export default function supernova(galaxy) {
           // Process the new data
           const formattedData = processData({ layout, pageData });
           setTableData(formattedData);
-          setCurrentPage(newPage);
 
           // Update pagination display
           const pageSize = getPageSize();
@@ -312,43 +334,109 @@ export default function supernova(galaxy) {
           );
         } catch (error) {
           console.error("Error changing page:", error);
+          setUserChangedPage(false);
+          if (window.resetPageFlagTimer) {
+            clearTimeout(window.resetPageFlagTimer);
+          }
         }
       };
 
       // Get initial data when layout changes
+      const [lastLayoutId, setLastLayoutId] = useState("");
+
+      // Then modify the beginning of your layout useEffect:
       useEffect(() => {
-        console.log("index.js: Layout effect triggered", layout);
+        // Generate a unique ID for this layout
+        const layoutId = layout.qInfo?.qId || "";
+        console.log(
+          `Layout effect triggered. Layout ID: ${layoutId}, Previous: ${lastLayoutId}`
+        );
+        console.log("Current user changed page flag:", userChangedPage);
 
         if (layout && layout.qHyperCube) {
-          console.log("index.js: Processing layout to format data");
-
           // Get total row count from the hypercube
           const totalRowCount = layout.qHyperCube.qSize.qcy;
           console.log(`Total rows in hypercube: ${totalRowCount}`);
+
+          // IMPORTANT: Only process if this is really a new layout or data has changed
+          const isNewLayout = layoutId !== lastLayoutId;
+          const dataChanged = totalRowCount !== totalRows;
+
+          console.log(
+            `Is new layout: ${isNewLayout}, Data changed: ${dataChanged}`
+          );
+
+          // Store the new layout ID
+          if (isNewLayout) {
+            setLastLayoutId(layoutId);
+          }
+
           setTotalRows(totalRowCount);
 
-          // Reset to page 1 when layout changes (e.g., selections, filtering)
-          setCurrentPage(1);
+          // Completely prevent page reset when user has changed the page
+          const shouldResetToPageOne =
+            !userChangedPage &&
+            (isNewLayout || dataChanged) &&
+            !(layout.qSelectionInfo && layout.qSelectionInfo.qInSelections);
 
-          // Calculate pagination info
+          console.log(`Should reset to page 1: ${shouldResetToPageOne}`);
+
+          // Only change the page if we should reset
+          if (shouldResetToPageOne) {
+            console.log("Resetting to page 1 due to data change");
+            setCurrentPage(1);
+          } else {
+            console.log(`Maintaining current page: ${currentPage}`);
+          }
+
+          // Calculate pagination info for the current page
           const pageSize = getPageSize();
+          const pageToUse = shouldResetToPageOne ? 1 : currentPage;
+
           const paginationInfo = calculatePaginationInfo(
             totalRowCount,
             pageSize,
-            1
+            pageToUse
           );
           setPaginationInfo(paginationInfo);
 
-          // Process data from the first page already in the layout
-          const formattedData = processData({ layout });
-          setTableData(formattedData);
+          // Process data appropriately based on page
+          const processLayoutData = async () => {
+            if (shouldResetToPageOne || pageToUse === 1) {
+              // First page data is in the layout
+              const formattedData = processData({ layout });
+              setTableData(formattedData);
+            } else {
+              // We need to fetch data for the current page
+              try {
+                const pageData = await fetchPageData(pageToUse);
+                if (pageData && pageData.length > 0) {
+                  const formattedData = processData({ layout, pageData });
+                  setTableData(formattedData);
+                } else {
+                  console.warn(
+                    "Could not fetch data for the current page, falling back to page 1"
+                  );
+                  const formattedData = processData({ layout });
+                  setTableData(formattedData);
+                  setCurrentPage(1);
+                }
+              } catch (error) {
+                console.error("Error fetching page data:", error);
+                const formattedData = processData({ layout });
+                setTableData(formattedData);
+                setCurrentPage(1);
+              }
+            }
+          };
+
+          processLayoutData();
 
           console.log(
-            `Pagination initialized: ${paginationInfo.totalPages} pages of ${pageSize} rows each`
+            `Pagination setup complete: page ${pageToUse} of ${paginationInfo.totalPages}`
           );
         }
-      }, [layout]);
-
+      }, [layout, totalRows, currentPage, userChangedPage]); // Added userChangedPage dependency
       // Render the table when tableData or editedData changes
       useEffect(() => {
         try {
@@ -667,42 +755,69 @@ export default function supernova(galaxy) {
 
                   // Add click handler for the working selection approach
                   td.addEventListener("click", function () {
-                    // Immediate visual feedback - don't wait for state updates
-                    const allRows = tbody.querySelectorAll("tr");
-                    allRows.forEach((r) => r.classList.remove("selected-row"));
-                    tr.classList.add("selected-row");
-
                     try {
-                      // Store selected row for highlighting (async, but visuals already updated)
+                      // Visual feedback
+                      const allRows = tbody.querySelectorAll("tr");
+                      allRows.forEach((r) =>
+                        r.classList.remove("selected-row")
+                      );
+                      tr.classList.add("selected-row");
+
+                      // Store selected row for highlighting
                       setSelectedRow(rowIndex);
 
-                      // Start selection mode
+                      // Get element number
+                      const qElemNumber = cellData.qElemNumber;
+
+                      // Only proceed if not already in selection mode
                       if (!selections.isActive()) {
+                        console.log(
+                          `Starting selection for ${header.id}, elem: ${qElemNumber}`
+                        );
+
+                        // Begin selection mode - THIS IS CRITICAL FOR THE SELECTION UI TO APPEAR
                         selections.begin("/qHyperCubeDef");
-                      }
 
-                      // Apply selection - this is the method that works
-                      const globalRowIndex =
-                        (currentPage - 1) * paginationInfo.pageSize + rowIndex;
-                      const selectedRows = [globalRowIndex];
+                        // Look up dimensions from layout to find the dimension index
+                        const dimensions =
+                          layout.qHyperCube.qDimensionInfo || [];
+                        let dimIndex = -1;
 
-                      if (header.type === "dimension") {
-                        try {
-                          console.log(`Selecting row ${globalRowIndex}`);
+                        for (let i = 0; i < dimensions.length; i++) {
+                          if (dimensions[i].qFallbackTitle === header.id) {
+                            dimIndex = i;
+                            break;
+                          }
+                        }
 
-                          // Use requestAnimationFrame to ensure visual update happens before selection processing
-                          requestAnimationFrame(() => {
-                            selections.select({
-                              method: "selectHyperCubeCells",
-                              params: ["/qHyperCubeDef", selectedRows, []],
-                            });
+                        if (dimIndex !== -1) {
+                          console.log(
+                            `Found dimension at index ${dimIndex}, selecting element ${qElemNumber}`
+                          );
+
+                          // Use the standard hypercube selection API - most compatible with Qlik UI
+                          selections.select({
+                            method: "selectHyperCubeCells",
+                            params: [
+                              "/qHyperCubeDef", // Path to hypercube
+                              [
+                                (currentPage - 1) * paginationInfo.pageSize +
+                                  rowIndex,
+                              ], // Global row index
+                              [dimIndex], // Column index (dimension index)
+                            ],
                           });
-                        } catch (selectionError) {
-                          console.error("Selection error:", selectionError);
+                        } else {
+                          console.error(
+                            `Could not find dimension index for: ${header.id}`
+                          );
                         }
                       }
                     } catch (err) {
                       console.error("Error in selection handler:", err);
+                      if (selections.isActive()) {
+                        selections.cancel();
+                      }
                     }
                   });
                 }
@@ -811,7 +926,7 @@ export default function supernova(galaxy) {
             paginationContainer.appendChild(paginationControls);
 
             // Add save changes button (for writeback)
-          /*   if (layout.tableOptions?.allowWriteback) {
+            /*   if (layout.tableOptions?.allowWriteback) {
               const saveButtonContainer = document.createElement("div");
               saveButtonContainer.className = "save-button-container";
 
@@ -1117,6 +1232,46 @@ export default function supernova(galaxy) {
         isLoading,
       ]);
 
+      //  useEffect to track selection state changes
+      useEffect(() => {
+        // Get current selection state
+        const isInSelectionMode = !!(
+          layout.qSelectionInfo && layout.qSelectionInfo.qInSelections
+        );
+
+        // Log selection state changes for debugging
+        console.log(
+          `Selection state changed: was ${wasInSelectionMode}, is now ${isInSelectionMode}`
+        );
+
+        // If we're exiting selection mode, set a special flag to prevent page reset
+        if (wasInSelectionMode && !isInSelectionMode) {
+          console.log(
+            "SELECTION CANCELLED - Setting user changed page to true to prevent reset"
+          );
+          setUserChangedPage(true);
+
+          // Reset the flag after a delay (same as in changePage)
+          const timer = setTimeout(() => {
+            setUserChangedPage(false);
+            console.log("Reset userChangedPage flag after selection cancel");
+          }, 2000);
+
+          // Store the timer for cleanup
+          window.selectionResetTimer = timer;
+        }
+
+        // Update the previous selection state for next time
+        setWasInSelectionMode(isInSelectionMode);
+
+        // Clean up timers if component unmounts
+        return () => {
+          if (window.selectionResetTimer) {
+            clearTimeout(window.selectionResetTimer);
+          }
+        };
+      }, [layout.qSelectionInfo, wasInSelectionMode]);
+
       // Listen for selection state changes
       useEffect(() => {
         // Reset selected row when leaving selection mode
@@ -1129,6 +1284,14 @@ export default function supernova(galaxy) {
       return () => {
         console.log("index.js: Component cleanup");
         element.innerHTML = "";
+
+        // Add these lines to clean up timers
+        if (window.resetPageFlagTimer) {
+          clearTimeout(window.resetPageFlagTimer);
+        }
+        if (window.selectionResetTimer) {
+          clearTimeout(window.selectionResetTimer);
+        }
       };
     },
   };
