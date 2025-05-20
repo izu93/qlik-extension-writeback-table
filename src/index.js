@@ -207,8 +207,15 @@ export default function supernova(galaxy) {
         currentPageFirstRow: 1,
         currentPageLastRow: 100,
       });
+
+      // Get initial data when layout changes
+      const [lastLayoutId, setLastLayoutId] = useState("");
+
       //Add a new state variable for tracking selection mode
       const [wasInSelectionMode, setWasInSelectionMode] = useState(false);
+
+      // State to track if there are unsaved changes
+      const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
       // Get the default page size from properties or use 100
       const getPageSize = () => {
@@ -326,7 +333,7 @@ export default function supernova(galaxy) {
           setPaginationInfo(newPaginationInfo);
 
           // Reset edited data for the new page
-          setEditedData({});
+          //setEditedData({});
           setSelectedRow(null);
 
           console.log(
@@ -341,8 +348,58 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Get initial data when layout changes
-      const [lastLayoutId, setLastLayoutId] = useState("");
+      // Function to save all changes to localStorage
+
+      const saveAllChanges = () => {
+        console.log("Saving all changes:", editedData);
+
+        // Always save, regardless of hasUnsavedChanges state
+        try {
+          const savedData = {
+            timestamp: new Date().toISOString(),
+            changes: editedData,
+          };
+          localStorage.setItem(
+            "qlik-writeback-table-data",
+            JSON.stringify(savedData)
+          );
+          console.log("Changes saved to local storage");
+
+          // Show a success message to the user
+          const saveMessage = document.createElement("div");
+          saveMessage.className = "save-message";
+          saveMessage.textContent = "Changes saved successfully!";
+          document
+            .querySelector(".writeback-table-container")
+            .appendChild(saveMessage);
+
+          // Remove the message after 3 seconds
+          setTimeout(() => {
+            saveMessage.remove();
+          }, 3000);
+
+          // Reset the flag after saving
+          setHasUnsavedChanges(false);
+        } catch (err) {
+          console.error("Error saving to local storage:", err);
+        }
+      };
+
+      // Load saved data from localStorage
+      useEffect(() => {
+        try {
+          const savedDataStr = localStorage.getItem(
+            "qlik-writeback-table-data"
+          );
+          if (savedDataStr) {
+            const savedData = JSON.parse(savedDataStr);
+            setEditedData(savedData.changes || {});
+            console.log("Loaded saved changes from local storage:", savedData);
+          }
+        } catch (err) {
+          console.error("Error loading from local storage:", err);
+        }
+      }, []);
 
       // Then modify the beginning of your layout useEffect:
       useEffect(() => {
@@ -710,33 +767,148 @@ export default function supernova(galaxy) {
                   `index.js: Creating writeback cell for ${header.id} at row ${rowIndex}`
                 );
 
-                // Create editable cell for writeback columns
-                const input = document.createElement("input");
-                input.type = "text";
-                // Use edited value if it exists, otherwise use default
-                input.value =
-                  editedData[`${rowIndex}-${header.id}`] || cellData.value;
+                // Create different inputs based on the column type
+                if (header.id === "status") {
+                  // Create dropdown for status column
+                  const selectContainer = document.createElement("div");
+                  selectContainer.className = "status-select-container";
 
-                // Handle changes to the input field
-                input.addEventListener("change", (e) => {
-                  console.log(
-                    `index.js: Value changed for ${header.id} at row ${rowIndex}:`,
-                    e.target.value
-                  );
+                  const select = document.createElement("select");
+                  select.className = "status-select";
 
-                  // Store the edited value in state
-                  setEditedData((prev) => ({
-                    ...prev,
-                    [`${rowIndex}-${header.id}`]: e.target.value,
-                  }));
+                  // Get a unique ID for this cell based on the account ID, not the row index
+                  const accountId = row.AccountID
+                    ? row.AccountID.value
+                    : `row-${rowIndex}-page-${currentPage}`;
+                  const dataKey = `${accountId}-${header.id}`;
 
-                  // TODO: Implement actual writeback logic to Qlik or external storage
-                  console.log(
-                    `index.js: Writing back data: ${e.target.value} to row ${rowIndex}, field ${header.id}`
-                  );
-                });
+                  // Use edited value if it exists, otherwise use default
+                  const selectedValue =
+                    editedData[dataKey] || cellData.value || "";
 
-                td.appendChild(input);
+                  // Create options for the dropdown
+                  const options = [
+                    { value: "", text: "N/A", className: "" },
+                    {
+                      value: "Thumbs up",
+                      text: "Thumbs up",
+                      className: "thumbs-up",
+                    },
+                    {
+                      value: "Thumbs down",
+                      text: "Thumbs down",
+                      className: "thumbs-down",
+                    },
+                  ];
+
+                  // Add options to select
+                  options.forEach((opt) => {
+                    const option = document.createElement("option");
+                    option.value = opt.value;
+                    option.text = opt.text;
+                    if (opt.className) {
+                      option.className = opt.className;
+                    }
+                    if (selectedValue === opt.value) {
+                      option.selected = true;
+                    }
+                    select.appendChild(option);
+                  });
+
+                  // Create a span to show the icon
+                  const statusIcon = document.createElement("span");
+                  statusIcon.className = "status-icon";
+
+                  // Set initial icon and color based on current value
+                  if (selectedValue === "Thumbs up") {
+                    statusIcon.innerHTML = "👍";
+                    statusIcon.classList.add("thumbs-up-icon");
+                    selectContainer.classList.add("status-green");
+                  } else if (selectedValue === "Thumbs down") {
+                    statusIcon.innerHTML = "👎";
+                    statusIcon.classList.add("thumbs-down-icon");
+                    selectContainer.classList.add("status-red");
+                  }
+
+                  // Handle changes to the dropdown
+                  select.addEventListener("change", (e) => {
+                    console.log(
+                      `index.js: Status changed for row ${rowIndex}:`,
+                      e.target.value
+                    );
+
+                    // Store the edited value using accountId-based key
+                    setEditedData((prev) => ({
+                      ...prev,
+                      [dataKey]: e.target.value,
+                    }));
+
+                    // Set flag for unsaved changes
+                    setHasUnsavedChanges(true);
+
+                    // Update icon and color
+                    if (e.target.value === "Thumbs up") {
+                      statusIcon.innerHTML = "👍";
+                      statusIcon.className = "status-icon thumbs-up-icon";
+                      selectContainer.className =
+                        "status-select-container status-green";
+                    } else if (e.target.value === "Thumbs down") {
+                      statusIcon.innerHTML = "👎";
+                      statusIcon.className = "status-icon thumbs-down-icon";
+                      selectContainer.className =
+                        "status-select-container status-red";
+                    } else {
+                      statusIcon.innerHTML = "";
+                      statusIcon.className = "status-icon";
+                      selectContainer.className = "status-select-container";
+                    }
+
+                    console.log(
+                      `index.js: Writing back status: ${e.target.value} for account ${accountId}`
+                    );
+                  });
+
+                  selectContainer.appendChild(statusIcon);
+                  selectContainer.appendChild(select);
+                  td.appendChild(selectContainer);
+                } else {
+                  // Other writeback columns (e.g., comments) still use text input
+                  const input = document.createElement("input");
+                  input.type = "text";
+                  input.className = "comments-input";
+
+                  // Get a unique ID for this cell based on the account ID, not the row index
+                  const accountId = row.AccountID
+                    ? row.AccountID.value
+                    : `row-${rowIndex}-page-${currentPage}`;
+                  const dataKey = `${accountId}-${header.id}`;
+
+                  // Use edited value if it exists, otherwise use default
+                  input.value = editedData[dataKey] || cellData.value;
+
+                  // Handle changes to the input field
+                  input.addEventListener("change", (e) => {
+                    console.log(
+                      `index.js: Value changed for ${header.id} at row ${rowIndex}:`,
+                      e.target.value
+                    );
+
+                    // Store the edited value using accountId-based key
+                    setEditedData((prev) => ({
+                      ...prev,
+                      [dataKey]: e.target.value,
+                    }));
+
+                    // Set flag for unsaved changes
+                    setHasUnsavedChanges(true);
+
+                    console.log(
+                      `index.js: Writing back data: ${e.target.value} for account ${accountId}, field ${header.id}`
+                    );
+                  });
+
+                  td.appendChild(input);
+                }
               } else {
                 // Regular cell for dimensions and measures (non-editable)
                 td.textContent = cellData.value;
@@ -925,24 +1097,55 @@ export default function supernova(galaxy) {
 
             paginationContainer.appendChild(paginationControls);
 
-            // Add save changes button (for writeback)
-            /*   if (layout.tableOptions?.allowWriteback) {
+            // Add save changes button for writeback
+            if (layout.tableOptions?.allowWriteback) {
               const saveButtonContainer = document.createElement("div");
               saveButtonContainer.className = "save-button-container";
 
               const saveButton = document.createElement("button");
-              saveButton.className = "save-button";
+              saveButton.className = "save-all-button";
               saveButton.textContent = "Save All Changes";
-              saveButton.addEventListener("click", () => {
-                alert("Saving changes functionality would go here");
-                // Here you would implement the actual save logic
-                console.log("Saving changes:", editedData);
+              saveButton.disabled = false; // Just always enable it to be safe
+
+              saveButton.addEventListener("click", function () {
+                // Get the current edited data directly
+                const currentEditedData = { ...editedData };
+
+                // Save it immediately
+                try {
+                  const savedData = {
+                    timestamp: new Date().toISOString(),
+                    changes: currentEditedData,
+                  };
+                  localStorage.setItem(
+                    "qlik-writeback-table-data",
+                    JSON.stringify(savedData)
+                  );
+                  console.log("Changes saved to local storage");
+
+                  // Show a success message to the user
+                  const saveMessage = document.createElement("div");
+                  saveMessage.className = "save-message";
+                  saveMessage.textContent = "Changes saved successfully!";
+                  document
+                    .querySelector(".writeback-table-container")
+                    .appendChild(saveMessage);
+
+                  // Remove the message after 3 seconds
+                  setTimeout(() => {
+                    saveMessage.remove();
+                  }, 3000);
+
+                  // Update the state flag afterward
+                  setHasUnsavedChanges(false);
+                } catch (err) {
+                  console.error("Error saving to local storage:", err);
+                }
               });
 
               saveButtonContainer.appendChild(saveButton);
               paginationContainer.appendChild(saveButtonContainer);
-            } */
-
+            }
             container.appendChild(paginationContainer);
             console.log("Pagination controls added to DOM");
           } else {
@@ -1148,24 +1351,7 @@ export default function supernova(galaxy) {
               color: #666;
             }
             
-            .save-button-container {
-              margin-left: auto;
-            }
-            
-            .save-button {
-              padding: 8px 16px;
-              background-color: #4CAF50;
-              color: white;
-              border: none;
-              border-radius: 3px;
-              cursor: pointer;
-              font-weight: bold;
-              transition: background-color 0.2s ease;
-            }
-            
-            .save-button:hover {
-              background-color: #45a049;
-            }
+         
             
             /* Loading overlay */
             .loading-overlay {
@@ -1209,6 +1395,94 @@ export default function supernova(galaxy) {
             @keyframes spin {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
+            }
+
+            /* Save All Changes button styling */
+            .save-all-button {
+              padding: 8px 16px;
+              background-color: #4285f4;
+              color: white;
+              border: none;
+              border-radius: 3px;
+              cursor: pointer;
+              font-weight: bold;
+              transition: background-color 0.2s ease;
+            }
+
+            .save-all-button:hover {
+              background-color: #3367d6;
+            }
+
+            .save-all-button:disabled {
+              background-color: #cccccc;
+              cursor: not-allowed;
+            }
+
+            /* Save message notification */
+            .save-message {
+              position: fixed;
+              bottom: 20px;
+              right: 20px;
+              background-color: #4CAF50;
+              color: white;
+              padding: 10px 20px;
+              border-radius: 4px;
+              font-weight: bold;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+              z-index: 1000;
+              animation: fadeInOut 3s ease-in-out;
+            }
+
+            @keyframes fadeInOut {
+              0% { opacity: 0; transform: translateY(20px); }
+              10% { opacity: 1; transform: translateY(0); }
+              90% { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(20px); }
+            }
+              /* Status dropdown styling */
+            .status-select-container {
+              display: flex;
+              align-items: center;
+              padding: 4px 8px;
+              border-radius: 4px;
+              background-color: #f7f7f7;
+            }
+
+            .status-green {
+              background-color: #e6ffe6;
+            }
+
+            .status-red {
+              background-color: #ffe6e6;
+            }
+
+            .status-icon {
+              margin-right: 8px;
+              font-size: 16px;
+            }
+
+            .status-select {
+              flex: 1;
+              padding: 4px;
+              border: 1px solid #ddd;
+              border-radius: 3px;
+              background-color: white;
+            }
+
+            .comments-input {
+              width: 100%;
+              padding: 6px;
+              border: 1px solid #ddd;
+              border-radius: 3px;
+            }
+
+            /* Dropdown options styling */
+            .thumbs-up-icon {
+              color: #4CAF50;
+            }
+
+            .thumbs-down-icon {
+              color: #f44336;
             }
           `;
 
