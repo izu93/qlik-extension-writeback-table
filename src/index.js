@@ -790,13 +790,13 @@ export default function supernova(galaxy) {
                   const options = [
                     { value: "", text: "N/A", className: "" },
                     {
-                      value: "Thumbs up",
-                      text: "Thumbs up",
+                      value: "Accurate",
+                      text: "Accurate",
                       className: "thumbs-up",
                     },
                     {
-                      value: "Thumbs down",
-                      text: "Thumbs down",
+                      value: "Inaccurate",
+                      text: "Inaccurate",
                       className: "thumbs-down",
                     },
                   ];
@@ -820,16 +820,17 @@ export default function supernova(galaxy) {
                   statusIcon.className = "status-icon";
 
                   // Set initial icon and color based on current value
-                  if (selectedValue === "Thumbs up") {
-                    statusIcon.innerHTML = "👍";
+                  if (selectedValue === "Accurate") {
+                    // Change the value to match
+                    statusIcon.innerHTML = "👍"; // Keep the thumbs up icon
                     statusIcon.classList.add("thumbs-up-icon");
                     selectContainer.classList.add("status-green");
-                  } else if (selectedValue === "Thumbs down") {
-                    statusIcon.innerHTML = "👎";
+                  } else if (selectedValue === "Inaccurate") {
+                    // Change the value to match
+                    statusIcon.innerHTML = "👎"; // Keep the thumbs down icon
                     statusIcon.classList.add("thumbs-down-icon");
                     selectContainer.classList.add("status-red");
                   }
-
                   // Handle changes to the dropdown
                   select.addEventListener("change", (e) => {
                     console.log(
@@ -847,13 +848,15 @@ export default function supernova(galaxy) {
                     setHasUnsavedChanges(true);
 
                     // Update icon and color
-                    if (e.target.value === "Thumbs up") {
-                      statusIcon.innerHTML = "👍";
+                    if (e.target.value === "Accurate") {
+                      // Change the value to match
+                      statusIcon.innerHTML = "👍"; // Keep the thumbs up icon
                       statusIcon.className = "status-icon thumbs-up-icon";
                       selectContainer.className =
                         "status-select-container status-green";
-                    } else if (e.target.value === "Thumbs down") {
-                      statusIcon.innerHTML = "👎";
+                    } else if (e.target.value === "Inaccurate") {
+                      // Change the value to match
+                      statusIcon.innerHTML = "👎"; // Keep the thumbs down icon
                       statusIcon.className = "status-icon thumbs-down-icon";
                       selectContainer.className =
                         "status-select-container status-red";
@@ -862,7 +865,6 @@ export default function supernova(galaxy) {
                       statusIcon.className = "status-icon";
                       selectContainer.className = "status-select-container";
                     }
-
                     console.log(
                       `index.js: Writing back status: ${e.target.value} for account ${accountId}`
                     );
