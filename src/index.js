@@ -352,10 +352,10 @@ export default function supernova(galaxy) {
       const saveAllChanges = () => {
         console.log("Saving all changes:", editedData);
 
-        // Force enable any Save All Changes buttons
+        // Immediately disable all save buttons to prevent multiple clicks
         const saveButtons = document.querySelectorAll(".save-all-button");
         saveButtons.forEach((btn) => {
-          btn.disabled = true; // Set to disabled after saving
+          btn.disabled = true;
         });
 
         // Store in localStorage for persistence between sessions
@@ -387,6 +387,11 @@ export default function supernova(galaxy) {
           setHasUnsavedChanges(false);
         } catch (err) {
           console.error("Error saving to local storage:", err);
+
+          // Re-enable the save buttons if there was an error
+          saveButtons.forEach((btn) => {
+            btn.disabled = false;
+          });
         }
       };
 
@@ -768,10 +773,6 @@ export default function supernova(galaxy) {
 
               // Handle writeback columns (editable inputs)
               if (header.type === "writeback") {
-                console.log(
-                  `index.js: Creating writeback cell for ${header.id} at row ${rowIndex}`
-                );
-
                 // Create different inputs based on the column type
                 if (header.id === "status") {
                   // Create dropdown for status column
@@ -908,7 +909,12 @@ export default function supernova(galaxy) {
 
                     // Set flag for unsaved changes
                     setHasUnsavedChanges(true);
-
+                    // ADDED: Directly enable save buttons in DOM
+                    const saveButtons =
+                      document.querySelectorAll(".save-all-button");
+                    saveButtons.forEach((btn) => {
+                      btn.disabled = false;
+                    });
                     console.log(
                       `index.js: Writing back data: ${e.target.value} for account ${accountId}, field ${header.id}`
                     );
@@ -1163,10 +1169,7 @@ export default function supernova(galaxy) {
 
               // Modified click handler to disable the button immediately after saving
               saveButton.addEventListener("click", () => {
-                // Disable the button immediately
-                saveButton.disabled = true;
-
-                // Then call the save function
+                // Call saveAllChanges without disabling the button first
                 saveAllChanges();
               });
 
