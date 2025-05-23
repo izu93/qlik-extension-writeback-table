@@ -348,9 +348,9 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Function to save all changes to localStorage
-      const saveAllChanges = () => {
-        console.log("Saving all changes:", editedData);
+      // Enhanced saveAllChanges function with better messaging
+      const saveAllChanges = async () => {
+        console.log("Saving all changes via Qlik Automation:", editedData);
 
         // Immediately disable all save buttons to prevent multiple clicks
         const saveButtons = document.querySelectorAll(".save-all-button");
@@ -358,8 +358,8 @@ export default function supernova(galaxy) {
           btn.disabled = true;
         });
 
-        // Store in localStorage for persistence between sessions
         try {
+          // 1. Store in localStorage as backup
           const savedData = {
             timestamp: new Date().toISOString(),
             changes: editedData,
@@ -370,28 +370,316 @@ export default function supernova(galaxy) {
           );
           console.log("Changes saved to local storage");
 
-          // Show a success message to the user
-          const saveMessage = document.createElement("div");
-          saveMessage.className = "save-message";
-          saveMessage.textContent = "Changes saved successfully!";
+          // 2. Show processing indicator
+          const processingIndicator = document.createElement("div");
+          processingIndicator.className = "save-message processing";
+          processingIndicator.innerHTML = `
+      <div>Processing via Qlik Automation...</div>
+      <div style="font-size: 0.9em; margin-top: 5px;">Uploading to Amazon S3</div>
+    `;
           document
             .querySelector(".writeback-table-container")
-            .appendChild(saveMessage);
+            .appendChild(processingIndicator);
 
-          // Remove the message after 3 seconds
-          setTimeout(() => {
-            saveMessage.remove();
-          }, 3000);
+          // 3. Get metadata
+          const username = await getCurrentUsername();
+          const saveTimestamp = new Date().toISOString();
+          const appId = layout.qInfo.qId.split("_")[0] || "unknown";
 
-          // IMPORTANT: Reset the unsaved changes flag
-          setHasUnsavedChanges(false);
+          // 4. Format data (same as before)
+          const formattedData = [];
+
+          if (tableData && tableData.rows) {
+            tableData.rows.forEach((row, rowIndex) => {
+              const accountId = row.AccountID
+                ? row.AccountID.value
+                : `row-${rowIndex}-page-${currentPage}`;
+
+              const hasEditedData = Object.keys(editedData).some((key) =>
+                key.startsWith(`${accountId}-`)
+              );
+
+              if (hasEditedData) {
+                const dataRow = {
+                  ModifiedTimestamp: saveTimestamp,
+                  ModifiedBy: username,
+                  AppID: appId,
+                  RowID: accountId,
+                };
+
+                // Add dimension values
+                tableData.headers.forEach((header) => {
+                  if (header.type === "dimension" && row[header.id]) {
+                    const cleanColumnName = header.id.replace(/[,"\n\r]/g, "_");
+                    dataRow[cleanColumnName] = row[header.id].value || "";
+                  }
+                });
+
+                // Add measure values
+                tableData.headers.forEach((header) => {
+                  if (header.type === "measure" && row[header.id]) {
+                    const cleanColumnName = header.id.replace(/[,"\n\r]/g, "_");
+                    dataRow[cleanColumnName] = row[header.id].value || "";
+                  }
+                });
+
+                // Add writeback values
+                if (layout.tableOptions?.allowWriteback) {
+                  const statusKey = `${accountId}-status`;
+                  dataRow.Status =
+                    editedData[statusKey] ||
+                    (row.status ? row.status.value : "");
+
+                  const commentsKey = `${accountId}-comments`;
+                  dataRow.Comments =
+                    editedData[commentsKey] ||
+                    (row.comments ? row.comments.value : "");
+                }
+
+                formattedData.push(dataRow);
+              }
+            });
+          }
+
+          if (formattedData.length === 0) {
+            processingIndicator.remove();
+            const noDataMessage = document.createElement("div");
+            noDataMessage.className = "save-message warning";
+            noDataMessage.textContent = "No changes to save";
+            document
+              .querySelector(".writeback-table-container")
+              .appendChild(noDataMessage);
+            setTimeout(() => noDataMessage.remove(), 3000);
+            return;
+          }
+
+          // 5. Convert to CSV and upload via automation
+          const csvContent = convertToCSV(formattedData);
+          const fileName = `writeback_${appId}_${Date.now()}.csv`;
+
+          console.log(`Uploading ${formattedData.length} rows via automation`);
+
+          // CHANGE HERE: Use the new S3 upload function instead of the old Qlik one
+          const uploadSuccess = await uploadCSVToS3(csvContent, fileName);
+
+          if (uploadSuccess) {
+            processingIndicator.remove();
+            setHasUnsavedChanges(false);
+          }
         } catch (err) {
-          console.error("Error saving to local storage:", err);
+          console.error("Error in automation save process:", err);
 
-          // Re-enable the save buttons if there was an error
+          // Remove processing indicator
+          const processingIndicator = document.querySelector(
+            ".save-message.processing"
+          );
+          if (processingIndicator) processingIndicator.remove();
+
+          const errorMessage = document.createElement("div");
+          errorMessage.className = "save-message error";
+          errorMessage.innerHTML = `
+      <div>Upload completed with warnings</div>
+      <div style="font-size: 0.9em; margin-top: 5px;">CSV backup downloaded</div>
+      <div style="font-size: 0.8em; margin-top: 3px;">Check automation logs for details</div>
+    `;
+          document
+            .querySelector(".writeback-table-container")
+            .appendChild(errorMessage);
+
+          setTimeout(() => errorMessage.remove(), 10000);
+        } finally {
+          // Always re-enable save buttons
           saveButtons.forEach((btn) => {
             btn.disabled = false;
           });
+        }
+      };
+
+      // Helper function to get current username
+      const getCurrentUsername = async () => {
+        try {
+          // Try multiple approaches to get username
+          if (window.qlik && window.qlik.currApp) {
+            const user = await window.qlik
+              .currApp()
+              .global.getAuthenticatedUser();
+            return user.qName || user.userId || "unknown_user";
+          } else if (galaxy && galaxy.session) {
+            const session = galaxy.session;
+            if (session.config && session.config.user) {
+              return (
+                session.config.user.name ||
+                session.config.user.sub ||
+                "unknown_user"
+              );
+            }
+          }
+          return "unknown_user";
+        } catch (error) {
+          console.log("Could not get username:", error.message);
+          return "unknown_user";
+        }
+      };
+
+      // Helper function to convert data to CSV
+      const convertToCSV = (data) => {
+        if (!data || data.length === 0) return "";
+
+        // Get headers from first row
+        const headers = Object.keys(data[0]);
+
+        // Create CSV header row
+        let csv = headers.join(",") + "\n";
+
+        // Add data rows with proper CSV escaping
+        data.forEach((row) => {
+          const values = headers.map((header) => {
+            let value = row[header] || "";
+            value = String(value);
+
+            // Escape CSV special characters
+            if (
+              value.includes(",") ||
+              value.includes('"') ||
+              value.includes("\n") ||
+              value.includes("\r")
+            ) {
+              value = `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          });
+          csv += values.join(",") + "\n";
+        });
+
+        return csv;
+      };
+
+      // Find your uploadCSVToS3 function and update it with this version:
+
+      const uploadCSVToS3 = async (csvContent, fileName) => {
+        try {
+          console.log("Starting Amazon S3 upload via Qlik Automation...");
+          console.log("File name:", fileName);
+
+          // Use your PROVEN working automation ID that successfully receives data
+          const automationWebhookUrl =
+            "https://karthikburra93.us.qlikcloud.com/api/v1/automations/ad18876b-6c22-4b47-9c7f-880250abbe0c/actions/execute";
+
+          // Use your proven working execution token
+          const executionToken =
+            "FFD8ETajxESMaoZPBguKApsnhmFTfKTzrfocU0inNdBLhsQm4OcsytVpxwqsn05z";
+
+          // CHANGED: Remove action from URL query parameter - only use execution token
+          const fullWebhookUrl = `${automationWebhookUrl}?X-Execution-Token=${executionToken}`;
+
+          // CORRECTED: Match what the S3 automation blocks expect
+          const payload = {
+            action: "upload_writeback_data",
+            fileName: fileName, // Changed back to fileName (matches {$.Start.body.fileName})
+            csvContent: csvContent, // Changed back to csvContent (matches {$.Start.body.csvContent})
+            timestamp: new Date().toISOString(),
+            appId: "uJkrd",
+            userAgent: navigator.userAgent,
+          };
+
+          console.log("Sending data to S3 automation webhook...");
+          console.log("Payload action:", payload.action);
+          console.log("Full payload:", payload);
+
+          // Use your proven working fetch call
+          const response = await fetch(fullWebhookUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "Qlik-Writeback-Extension",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          console.log(
+            "Webhook response:",
+            response.status,
+            response.statusText
+          );
+
+          if (response.ok) {
+            let responseData;
+            try {
+              responseData = await response.json();
+              console.log("S3 Automation response:", responseData);
+            } catch (e) {
+              responseData = await response.text();
+              console.log("S3 Automation response (text):", responseData);
+            }
+
+            // Show success message
+            const successMessage = document.createElement("div");
+            successMessage.className = "save-message success";
+            successMessage.innerHTML = `
+        <div>Data uploaded successfully to Amazon S3!</div>
+        <div style="font-size: 0.9em; margin-top: 5px;">Processed via Qlik Automation</div>
+        <div style="font-size: 0.8em; margin-top: 3px;">File: writeback-data/${fileName}</div>
+        <div style="font-size: 0.8em; margin-top: 3px;">Check kb-writeback-table S3 bucket</div>
+      `;
+
+            document
+              .querySelector(".writeback-table-container")
+              ?.appendChild(successMessage);
+            setTimeout(() => successMessage?.remove(), 6000);
+
+            return true;
+          } else {
+            // Handle error response
+            let errorDetails;
+            try {
+              errorDetails = await response.json();
+            } catch (e) {
+              errorDetails = await response.text();
+            }
+
+            console.error("S3 automation webhook error:", errorDetails);
+
+            const errorMessage = document.createElement("div");
+            errorMessage.className = "save-message error";
+            errorMessage.innerHTML = `
+        <div>Error uploading data</div>
+        <div style="font-size: 0.9em; margin-top: 5px;">Please check console for details</div>
+      `;
+
+            document
+              .querySelector(".writeback-table-container")
+              ?.appendChild(errorMessage);
+            setTimeout(() => errorMessage?.remove(), 6000);
+
+            throw new Error(
+              `Webhook failed: ${response.status} - ${response.statusText}`
+            );
+          }
+        } catch (error) {
+          console.error("S3 upload error:", error);
+          return false;
+        }
+      };
+      // Enhanced download function with better user feedback
+      const downloadCSV = (csvContent, fileName) => {
+        try {
+          const blob = new Blob([csvContent], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = fileName;
+
+          // Add the link to the document temporarily
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          // Clean up the URL
+          URL.revokeObjectURL(url);
+
+          console.log("CSV file downloaded:", fileName);
+        } catch (error) {
+          console.error("Error downloading CSV:", error);
         }
       };
 
@@ -1567,6 +1855,7 @@ export default function supernova(galaxy) {
             .very-low-risk {
               background-color: #27ae60;
             }
+              
           `;
 
           element.appendChild(style);
