@@ -455,7 +455,8 @@ export default function supernova(galaxy) {
 
           // 5. Convert to CSV and upload via automation
           const csvContent = convertToCSV(formattedData);
-          const fileName = `writeback_${appId}_${Date.now()}.csv`;
+          //const fileName = `writeback_${appId}_${Date.now()}.csv`;
+          const fileName = `latest_feedback.csv`;
 
           console.log(`Uploading ${formattedData.length} rows via automation`);
 
@@ -554,18 +555,18 @@ export default function supernova(galaxy) {
         return csv;
       };
 
-      // Find your uploadCSVToS3 function and update it with this version:
+      //  uploadCSVToS3 function
 
       const uploadCSVToS3 = async (csvContent, fileName) => {
         try {
           console.log("Starting Amazon S3 upload via Qlik Automation...");
           console.log("File name:", fileName);
 
-          // Use your PROVEN working automation ID that successfully receives data
+          // Use working automation ID that successfully receives data
           const automationWebhookUrl =
             "https://karthikburra93.us.qlikcloud.com/api/v1/automations/ad18876b-6c22-4b47-9c7f-880250abbe0c/actions/execute";
 
-          // Use your proven working execution token
+          // Use  working execution token
           const executionToken =
             "FFD8ETajxESMaoZPBguKApsnhmFTfKTzrfocU0inNdBLhsQm4OcsytVpxwqsn05z";
 
@@ -660,6 +661,92 @@ export default function supernova(galaxy) {
           return false;
         }
       };
+
+      // Function to fetch existing feedback from read automation
+      const fetchExistingFeedback = async (appId) => {
+        try {
+          console.log("Fetching existing feedback for app:", appId);
+
+          // READ automation webhook URL and token
+          const readAutomationUrl =
+            "https://karthikburra93.us.qlikcloud.com/api/v1/automations/ac226a7e-0c76-4003-bae8-00d355e782f3/actions/execute";
+          const readExecutionToken =
+            "G6LePb7NiG1ks1324JXILzBtNe7i12mWfhL4ZyXkSC45CShFow3wQ6Bwx98L7jM9";
+
+          const fullReadUrl = `${readAutomationUrl}?X-Execution-Token=${readExecutionToken}`;
+
+          const payload = {
+            appId: appId,
+          };
+
+          const response = await fetch(fullReadUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "Qlik-Writeback-Extension-Read",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (response.ok) {
+            const responseText = await response.text();
+            console.log("Raw response:", responseText);
+
+            // The response is a JSON string, parse it
+            let data = JSON.parse(responseText);
+            console.log("Raw parsed data:", data);
+
+            // Handle case where automation returns array with JSON string
+            if (Array.isArray(data) && data.length > 0) {
+              data = JSON.parse(data[0]);
+            }
+
+            console.log("Successfully fetched feedback:", data);
+            return data.feedbackData || {};
+          } else {
+            console.warn("Could not fetch existing feedback:", response.status);
+            return {};
+          }
+        } catch (error) {
+          console.error("Error fetching feedback:", error);
+          return {};
+        }
+      };
+
+      // Function to merge Qlik data with existing feedback
+      const mergeWithExistingFeedback = (qlikTableData, feedbackData) => {
+        if (!qlikTableData || !qlikTableData.rows) return qlikTableData;
+
+        console.log("Merging feedback data:", feedbackData);
+
+        const mergedRows = qlikTableData.rows.map((row) => {
+          // Get the account ID for this row
+          const accountId = row.AccountID ? row.AccountID.value : null;
+
+          if (accountId && feedbackData[accountId]) {
+            console.log(
+              `Found existing feedback for ${accountId}:`,
+              feedbackData[accountId]
+            );
+
+            // Update writeback columns with existing feedback
+            if (row.status) {
+              row.status.value = feedbackData[accountId].status || "";
+            }
+            if (row.comments) {
+              row.comments.value = feedbackData[accountId].comments || "";
+            }
+          }
+
+          return row;
+        });
+
+        return {
+          ...qlikTableData,
+          rows: mergedRows,
+        };
+      };
+
       // Enhanced download function with better user feedback
       const downloadCSV = (csvContent, fileName) => {
         try {
@@ -756,35 +843,60 @@ export default function supernova(galaxy) {
           setPaginationInfo(paginationInfo);
 
           // Process data appropriately based on page
+
           const processLayoutData = async () => {
             if (shouldResetToPageOne || pageToUse === 1) {
-              // First page data is in the layout
-              const formattedData = processData({ layout });
-              setTableData(formattedData);
+              // Process first page data from layout
+              const qlikFormattedData = processData({ layout });
+
+              // NEW: Fetch existing feedback and merge
+              if (layout.tableOptions?.allowWriteback) {
+                const appId = layout.qInfo?.qId?.split("_")[0] || "uJkrd";
+                console.log("Fetching feedback for appId:", appId);
+                const existingFeedback = await fetchExistingFeedback(appId);
+                const mergedData = mergeWithExistingFeedback(
+                  qlikFormattedData,
+                  existingFeedback
+                );
+                setTableData(mergedData);
+              } else {
+                setTableData(qlikFormattedData);
+              }
             } else {
-              // We need to fetch data for the current page
+              // For other pages, fetch page data first, then merge
               try {
                 const pageData = await fetchPageData(pageToUse);
                 if (pageData && pageData.length > 0) {
-                  const formattedData = processData({ layout, pageData });
-                  setTableData(formattedData);
+                  const qlikFormattedData = processData({ layout, pageData });
+
+                  // NEW: Fetch and merge feedback for this page too
+                  if (layout.tableOptions?.allowWriteback) {
+                    const appId = layout.qInfo?.qId?.split("_")[0] || "uJkrd";
+                    const existingFeedback = await fetchExistingFeedback(appId);
+                    const mergedData = mergeWithExistingFeedback(
+                      qlikFormattedData,
+                      existingFeedback
+                    );
+                    setTableData(mergedData);
+                  } else {
+                    setTableData(qlikFormattedData);
+                  }
                 } else {
                   console.warn(
                     "Could not fetch data for the current page, falling back to page 1"
                   );
-                  const formattedData = processData({ layout });
-                  setTableData(formattedData);
+                  const qlikFormattedData = processData({ layout });
+                  setTableData(qlikFormattedData);
                   setCurrentPage(1);
                 }
               } catch (error) {
                 console.error("Error fetching page data:", error);
-                const formattedData = processData({ layout });
-                setTableData(formattedData);
+                const qlikFormattedData = processData({ layout });
+                setTableData(qlikFormattedData);
                 setCurrentPage(1);
               }
             }
           };
-
           processLayoutData();
 
           console.log(
