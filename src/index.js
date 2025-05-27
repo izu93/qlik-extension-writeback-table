@@ -563,12 +563,10 @@ export default function supernova(galaxy) {
           console.log("File name:", fileName);
 
           // Use working automation ID that successfully receives data
-          const automationWebhookUrl =
-            "https://karthikburra93.us.qlikcloud.com/api/v1/automations/ad18876b-6c22-4b47-9c7f-880250abbe0c/actions/execute";
+          const automationWebhookUrl = "";
 
           // Use  working execution token
-          const executionToken =
-            "FFD8ETajxESMaoZPBguKApsnhmFTfKTzrfocU0inNdBLhsQm4OcsytVpxwqsn05z";
+          const executionToken = "";
 
           // CHANGED: Remove action from URL query parameter - only use execution token
           const fullWebhookUrl = `${automationWebhookUrl}?X-Execution-Token=${executionToken}`;
@@ -668,10 +666,8 @@ export default function supernova(galaxy) {
           console.log("Fetching existing feedback for app:", appId);
 
           // READ automation webhook URL and token
-          const readAutomationUrl =
-            "https://karthikburra93.us.qlikcloud.com/api/v1/automations/ac226a7e-0c76-4003-bae8-00d355e782f3/actions/execute";
-          const readExecutionToken =
-            "G6LePb7NiG1ks1324JXILzBtNe7i12mWfhL4ZyXkSC45CShFow3wQ6Bwx98L7jM9";
+          const readAutomationUrl = "";
+          const readExecutionToken = "";
 
           const fullReadUrl = `${readAutomationUrl}?X-Execution-Token=${readExecutionToken}`;
 
