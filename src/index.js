@@ -10,6 +10,7 @@ import {
 import properties from "./object-properties";
 import data from "./data";
 import ext from "./ext";
+import ENV from "./env";
 
 /**
  * Utility function to process Qlik hypercube data and transform it for the table
@@ -563,10 +564,12 @@ export default function supernova(galaxy) {
           console.log("File name:", fileName);
 
           // Use working automation ID that successfully receives data
-          const automationWebhookUrl = "";
+          //const automationWebhookUrl = "";
+          const automationWebhookUrl = ENV.S3_UPLOAD_WEBHOOK_URL;
 
           // Use  working execution token
-          const executionToken = "";
+          //const executionToken = "";
+          const executionToken = ENV.S3_UPLOAD_TOKEN;
 
           // CHANGED: Remove action from URL query parameter - only use execution token
           const fullWebhookUrl = `${automationWebhookUrl}?X-Execution-Token=${executionToken}`;
@@ -666,8 +669,11 @@ export default function supernova(galaxy) {
           console.log("Fetching existing feedback for app:", appId);
 
           // READ automation webhook URL and token
-          const readAutomationUrl = "";
-          const readExecutionToken = "";
+          //const readAutomationUrl = "";
+          const readAutomationUrl = ENV.S3_READ_WEBHOOK_URL;
+
+          //const readExecutionToken = "";
+          const readExecutionToken = ENV.S3_READ_TOKEN;
 
           const fullReadUrl = `${readAutomationUrl}?X-Execution-Token=${readExecutionToken}`;
 
