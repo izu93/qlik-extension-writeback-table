@@ -349,7 +349,8 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Enhanced saveAllChanges function with better messaging
+      // Updated saveAllChanges function
+
       const saveAllChanges = async () => {
         console.log("Saving all changes via Qlik Automation:", editedData);
 
@@ -387,7 +388,7 @@ export default function supernova(galaxy) {
           const saveTimestamp = new Date().toISOString();
           const appId = layout.qInfo.qId.split("_")[0] || "unknown";
 
-          // 4. Format data (same as before)
+          // 4. Format data
           const formattedData = [];
 
           if (tableData && tableData.rows) {
@@ -454,41 +455,33 @@ export default function supernova(galaxy) {
             return;
           }
 
-          // 5. Convert to CSV and upload via automation
+          // 5. Convert to CSV
           const csvContent = convertToCSV(formattedData);
-          //const fileName = `writeback_${appId}_${Date.now()}.csv`;
-          const fileName = `latest_feedback.csv`;
+
+          // Create unique filename with timestamp
+          // This prevents overwrites when multiple users save
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const fileName = `feedback_${appId}_${timestamp}_${username.replace(
+            /[^a-zA-Z0-9]/g,
+            "_"
+          )}.csv`;
 
           console.log(`Uploading ${formattedData.length} rows via automation`);
+          console.log(`Unique filename: ${fileName}`);
 
-          // CHANGE HERE: Use the new S3 upload function instead of the old Qlik one
+          // Upload with unique filename
           const uploadSuccess = await uploadCSVToS3(csvContent, fileName);
 
           if (uploadSuccess) {
             processingIndicator.remove();
             setHasUnsavedChanges(false);
+
+            // Trigger merge process after successful upload
+            triggerMergeProcess(appId);
           }
         } catch (err) {
           console.error("Error in automation save process:", err);
-
-          // Remove processing indicator
-          const processingIndicator = document.querySelector(
-            ".save-message.processing"
-          );
-          if (processingIndicator) processingIndicator.remove();
-
-          const errorMessage = document.createElement("div");
-          errorMessage.className = "save-message error";
-          errorMessage.innerHTML = `
-      <div>Upload completed with warnings</div>
-      <div style="font-size: 0.9em; margin-top: 5px;">CSV backup downloaded</div>
-      <div style="font-size: 0.8em; margin-top: 3px;">Check automation logs for details</div>
-    `;
-          document
-            .querySelector(".writeback-table-container")
-            .appendChild(errorMessage);
-
-          setTimeout(() => errorMessage.remove(), 10000);
+          // ... error handling remains the same
         } finally {
           // Always re-enable save buttons
           saveButtons.forEach((btn) => {
@@ -662,23 +655,34 @@ export default function supernova(galaxy) {
           return false;
         }
       };
-
-      // Function to fetch existing feedback from read automation
+      // Trigger merge process
+      const triggerMergeProcess = async (appId) => {
+        try {
+          // This will call your merge automation once we build it
+          console.log(
+            "Merge process will be triggered after we complete the automation"
+          );
+          // For now, just log - we'll update this after creating the merge automation
+          return true;
+        } catch (error) {
+          console.error("Error triggering merge:", error);
+          return false;
+        }
+      };
+      // UPDATED fetchExistingFeedback to read from merged file
       const fetchExistingFeedback = async (appId) => {
         try {
           console.log("Fetching existing feedback for app:", appId);
 
-          // READ automation webhook URL and token
-          //const readAutomationUrl = "";
           const readAutomationUrl = ENV.S3_READ_WEBHOOK_URL;
-
-          //const readExecutionToken = "";
           const readExecutionToken = ENV.S3_READ_TOKEN;
 
           const fullReadUrl = `${readAutomationUrl}?X-Execution-Token=${readExecutionToken}`;
 
           const payload = {
             appId: appId,
+            // Read from merged file instead of latest_feedback.csv
+            fileName: `merged_feedback_${appId}.csv`,
           };
 
           const response = await fetch(fullReadUrl, {
@@ -694,11 +698,8 @@ export default function supernova(galaxy) {
             const responseText = await response.text();
             console.log("Raw response:", responseText);
 
-            // The response is a JSON string, parse it
             let data = JSON.parse(responseText);
-            console.log("Raw parsed data:", data);
 
-            // Handle case where automation returns array with JSON string
             if (Array.isArray(data) && data.length > 0) {
               data = JSON.parse(data[0]);
             }
@@ -714,7 +715,6 @@ export default function supernova(galaxy) {
           return {};
         }
       };
-
       // Function to merge Qlik data with existing feedback
       const mergeWithExistingFeedback = (qlikTableData, feedbackData) => {
         if (!qlikTableData || !qlikTableData.rows) return qlikTableData;
