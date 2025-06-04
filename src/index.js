@@ -218,6 +218,10 @@ export default function supernova(galaxy) {
       // State to track if there are unsaved changes
       const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+      // State to track if a save operation is in progress
+      // This prevents multiple clicks on the save button
+      const [isSaving, setIsSaving] = useState(false);
+
       // Get the default page size from properties or use 100
       const getPageSize = () => {
         return (
@@ -470,11 +474,20 @@ export default function supernova(galaxy) {
 
       // Modified saveAllChanges for version history tracking
       const saveAllChanges = async () => {
+        if (isSaving) {
+          console.log("Save already in progress, ignoring click");
+          return;
+        }
         console.log("Saving all changes to PostgreSQL database:", editedData);
+
+        // Set saving state immediately
+        setIsSaving(true);
 
         const saveButtons = document.querySelectorAll(".save-all-button");
         saveButtons.forEach((btn) => {
           btn.disabled = true;
+          btn.classList.add("saving");
+          btn.textContent = "Saving...";
         });
 
         try {
@@ -521,7 +534,7 @@ export default function supernova(galaxy) {
               try {
                 // Check if this account already exists in the database
                 console.log(
-                  `🔍 Checking existing versions for account: ${accountId}`
+                  `Checking existing versions for account: ${accountId}`
                 );
 
                 // Get the latest version for this account
@@ -714,8 +727,13 @@ export default function supernova(galaxy) {
           console.error("Error saving to database:", error);
           showMessage(`Error saving changes: ${error.message}`, "error");
         } finally {
+          // Reset saving state
+          setIsSaving(false);
+          // Re-enable save buttons
           saveButtons.forEach((btn) => {
             btn.disabled = false;
+            btn.classList.remove("saving");
+            btn.textContent = "Save All Changes";
           });
         }
       };
@@ -1519,24 +1537,42 @@ export default function supernova(galaxy) {
             // Add save changes button for writeback
 
             if (layout.tableOptions?.allowWriteback) {
-              const saveButtonContainer = document.createElement("div");
-              saveButtonContainer.className = "save-button-container";
+              // Add save changes button for writeback
+              if (layout.tableOptions?.allowWriteback) {
+                const saveButtonContainer = document.createElement("div");
+                saveButtonContainer.className = "save-button-container";
 
-              const saveButton = document.createElement("button");
-              saveButton.className = "save-all-button";
-              saveButton.textContent = "Save All Changes";
+                const saveButton = document.createElement("button");
+                saveButton.className = "save-all-button";
+                saveButton.textContent = "Save All Changes";
 
-              // Start with the button disabled (gray)
-              saveButton.disabled = !hasUnsavedChanges;
+                // Start with the button disabled (gray) - NOW INCLUDES isSaving CHECK
+                saveButton.disabled = !hasUnsavedChanges || isSaving;
 
-              // Modified click handler to disable the button immediately after saving
-              saveButton.addEventListener("click", () => {
-                // Call saveAllChanges without disabling the button first
-                saveAllChanges();
-              });
+                // Modified click handler with better event handling
+                saveButton.addEventListener(
+                  "click",
+                  (e) => {
+                    // Prevent multiple clicks
+                    e.preventDefault();
+                    e.stopPropagation();
 
-              saveButtonContainer.appendChild(saveButton);
-              paginationContainer.appendChild(saveButtonContainer);
+                    // Double check that we're not already saving
+                    if (!isSaving && hasUnsavedChanges) {
+                      console.log("Save button clicked, starting save process");
+                      saveAllChanges();
+                    } else {
+                      console.log(
+                        "Save ignored - either already saving or no changes"
+                      );
+                    }
+                  },
+                  { once: false }
+                ); // Allow multiple clicks but we handle them properly
+
+                saveButtonContainer.appendChild(saveButton);
+                paginationContainer.appendChild(saveButtonContainer);
+              }
             }
             container.appendChild(paginationContainer);
             console.log("Pagination controls added to DOM");
@@ -1816,6 +1852,15 @@ export default function supernova(galaxy) {
             .save-all-button:disabled {
               background-color: #cccccc;
               cursor: not-allowed;
+            }
+
+            .save-all-button.saving {
+              background-color: #orange;
+              cursor: wait;
+            }
+
+            .save-all-button.saving::after {
+              content: " (Saving...)";
             }
 
             /* Save message notification */
