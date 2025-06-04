@@ -468,7 +468,7 @@ export default function supernova(galaxy) {
         return storedUsername;
       };
 
-      // Modified saveAllChanges function using the enhanced username detection
+      // Modified saveAllChanges for version history tracking
       const saveAllChanges = async () => {
         console.log("Saving all changes to PostgreSQL database:", editedData);
 
@@ -488,18 +488,18 @@ export default function supernova(galaxy) {
             .querySelector(".writeback-table-container")
             .appendChild(processingIndicator);
 
-          // Use the enhanced username detection with user prompt fallback
+          // Get username
           let username = await getOrPromptUsername();
-
           console.log("Final username for save operation:", username);
 
           const saveTimestamp = new Date().toISOString();
-          const appId = Date.now().toString();
+          const appId = "qlik_app_" + (model?.id || "default"); // Consistent app_id
 
-          // Rest of your existing save logic remains the same...
           const sqlStatements = [];
 
           if (tableData && tableData.rows) {
+            // First, get the latest version for each account that has edits
+            const accountsWithEdits = new Set();
             tableData.rows.forEach((row, rowIndex) => {
               const accountId = row.AccountID
                 ? row.AccountID.value
@@ -512,84 +512,128 @@ export default function supernova(galaxy) {
                 editedData[commentsKey] !== undefined;
 
               if (hasEdits) {
-                const baseFee = parseFloat(row.BaseFee?.value) || 0;
-                const planType = (row.PlanType?.value || "").replace(
+                accountsWithEdits.add(accountId);
+              }
+            });
+
+            // For each account with edits, determine if it's a new record or an update
+            for (const accountId of accountsWithEdits) {
+              try {
+                // Check if this account already exists in the database
+                console.log(
+                  `🔍 Checking existing versions for account: ${accountId}`
+                );
+
+                // Get the latest version for this account
+                const versionCheckSql = `
+            SELECT COALESCE(MAX(version), 0) as latest_version,
+                   MIN(created_at) as original_created_at,
+                   (SELECT created_by FROM writeback_data 
+                    WHERE app_id = '${appId}' AND account_id = '${accountId}' 
+                    ORDER BY version ASC LIMIT 1) as original_created_by
+            FROM writeback_data 
+            WHERE app_id = '${appId}' AND account_id = '${accountId}'`;
+
+                console.log(`Version check SQL: ${versionCheckSql}`);
+
+                // For now, we'll assume this is handled by your backend
+                // In a real implementation, you'd need to query the database first
+                // For this demo, we'll use a simple logic based on existence
+
+                // Find the row data for this account
+                const rowData = tableData.rows.find((row) => {
+                  const currentAccountId = row.AccountID
+                    ? row.AccountID.value
+                    : `row-${tableData.rows.indexOf(row)}-page-${currentPage}`;
+                  return currentAccountId === accountId;
+                });
+
+                if (!rowData) continue;
+
+                const statusKey = `${accountId}-status`;
+                const commentsKey = `${accountId}-comments`;
+
+                // Build the record data
+                const baseFee = parseFloat(rowData.BaseFee?.value) || 0;
+                const planType = (rowData.PlanType?.value || "").replace(
                   /'/g,
                   "''"
                 );
-                const promotion = (row.Promotion?.value || "").replace(
+                const promotion = (rowData.Promotion?.value || "").replace(
                   /'/g,
                   "''"
                 );
-                const serviceTickets = parseInt(row.ServiceTickets?.value) || 0;
-                const serviceRating = parseFloat(row.ServiceRating?.value) || 0;
+                const serviceTickets =
+                  parseInt(rowData.ServiceTickets?.value) || 0;
+                const serviceRating =
+                  parseFloat(rowData.ServiceRating?.value) || 0;
                 const probabilityOfChurn =
                   parseFloat(
-                    row["Probability of Churn"]?.value?.replace("%", "")
+                    rowData["Probability of Churn"]?.value?.replace("%", "")
                   ) || 0;
-                const shapValue = parseFloat(row["SHAP Value"]?.value) || 0;
+                const shapValue = parseFloat(rowData["SHAP Value"]?.value) || 0;
                 const modelFeedback = (
                   editedData[statusKey] ||
-                  row.status?.value ||
+                  rowData.status?.value ||
                   ""
                 ).replace(/'/g, "''");
                 const comments = (
                   editedData[commentsKey] ||
-                  row.comments?.value ||
+                  rowData.comments?.value ||
                   ""
                 ).replace(/'/g, "''");
-
                 const escapedUsername = (username || "system_user").replace(
                   /'/g,
                   "''"
                 );
-                console.log(
-                  "Using escaped username for SQL:",
-                  escapedUsername
-                );
 
-                const sql = `INSERT INTO writeback_data (
-            app_id, account_id, base_fee, plan_type, promotion,
-            service_tickets, service_rating, probability_of_churn, shap_value,
-            model_feedback, comments, created_by, modified_by, created_at, modified_at
-          ) VALUES (
-            '${appId}',
-            '${accountId}',
-            ${baseFee},
-            '${planType}',
-            '${promotion}',
-            ${serviceTickets},
-            ${serviceRating},
-            ${probabilityOfChurn},
-            ${shapValue},
-            '${modelFeedback}',
-            '${comments}',
-            '${escapedUsername}',
-            '${escapedUsername}',
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP
-          )
-          ON CONFLICT (app_id, account_id) 
-          DO UPDATE SET 
-            base_fee = EXCLUDED.base_fee,
-            plan_type = EXCLUDED.plan_type,
-            promotion = EXCLUDED.promotion,
-            service_tickets = EXCLUDED.service_tickets,
-            service_rating = EXCLUDED.service_rating,
-            probability_of_churn = EXCLUDED.probability_of_churn,
-            shap_value = EXCLUDED.shap_value,
-            model_feedback = EXCLUDED.model_feedback,
-            comments = EXCLUDED.comments,
-            modified_by = EXCLUDED.modified_by,
-            modified_at = CURRENT_TIMESTAMP,
-            version = writeback_data.version + 1;`;
+                // Version history approach: Always INSERT, determine version based on existing records
+                const sql = `
+            WITH version_info AS (
+              SELECT 
+                COALESCE(MAX(version), 0) + 1 as next_version,
+                COALESCE(MIN(created_at), CURRENT_TIMESTAMP) as original_created_at,
+                COALESCE(
+                  (SELECT created_by FROM writeback_data 
+                   WHERE app_id = '${appId}' AND account_id = '${accountId}' 
+                   ORDER BY version ASC LIMIT 1), 
+                  '${escapedUsername}'
+                ) as original_created_by
+              FROM writeback_data 
+              WHERE app_id = '${appId}' AND account_id = '${accountId}'
+            )
+            INSERT INTO writeback_data (
+              app_id, account_id, base_fee, plan_type, promotion,
+              service_tickets, service_rating, probability_of_churn, shap_value,
+              model_feedback, comments, created_by, modified_by, created_at, modified_at, version
+            )
+            SELECT 
+              '${appId}',
+              '${accountId}',
+              ${baseFee},
+              '${planType}',
+              '${promotion}',
+              ${serviceTickets},
+              ${serviceRating},
+              ${probabilityOfChurn},
+              ${shapValue},
+              '${modelFeedback}',
+              '${comments}',
+              CASE WHEN next_version = 1 THEN '${escapedUsername}' ELSE original_created_by END,
+              '${escapedUsername}',
+              CASE WHEN next_version = 1 THEN CURRENT_TIMESTAMP ELSE original_created_at END,
+              CURRENT_TIMESTAMP,
+              next_version
+            FROM version_info;`;
 
                 sqlStatements.push(sql);
+                console.log(`Generated version history SQL for ${accountId}`);
+              } catch (error) {
+                console.error(`Error processing account ${accountId}:`, error);
               }
-            });
+            }
           }
 
-          // Continue with existing save logic...
           if (sqlStatements.length === 0) {
             processingIndicator.remove();
             showMessage("No changes to save", "warning");
@@ -674,6 +718,31 @@ export default function supernova(galaxy) {
             btn.disabled = false;
           });
         }
+      };
+
+      // Function to get latest version of records for reading/display
+      const getLatestVersions = () => {
+        // This would be used when loading data to show only the latest version
+        // SQL query would be something like:
+        const latestVersionQuery = `
+    SELECT DISTINCT ON (app_id, account_id) *
+    FROM writeback_data 
+    WHERE app_id = '${appId}'
+    ORDER BY app_id, account_id, version DESC;
+  `;
+
+        // Or using window functions:
+        const latestVersionQueryAlt = `
+    SELECT * FROM (
+      SELECT *,
+             ROW_NUMBER() OVER (PARTITION BY app_id, account_id ORDER BY version DESC) as rn
+      FROM writeback_data 
+      WHERE app_id = '${appId}'
+    ) ranked
+    WHERE rn = 1;
+  `;
+
+        return latestVersionQuery;
       };
 
       // ADD: Helper function for showing messages
