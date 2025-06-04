@@ -349,45 +349,135 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Helper function to get current username
+      // Streamlined getCurrentUsername - only the methods that actually work
       const getCurrentUsername = async () => {
+        console.log("Starting username retrieval...");
+
         try {
-          // Try multiple approaches to get username
-          if (window.qlik && window.qlik.currApp) {
-            const user = await window.qlik
-              .currApp()
-              .global.getAuthenticatedUser();
-            return user.qName || user.userId || "unknown_user";
-          } else if (galaxy && galaxy.session) {
-            const session = galaxy.session;
-            if (session.config && session.config.user) {
-              return (
-                session.config.user.name ||
-                session.config.user.sub ||
-                "unknown_user"
-              );
+          // Method 1: For Qlik Cloud - Extract tenant from URL (WORKS!)
+          const hostname = window.location.hostname;
+          console.log("DEBUG: Current hostname:", hostname);
+
+          if (
+            hostname.includes(".qlikcloud.com") ||
+            hostname.includes(".qliksense.com")
+          ) {
+            const parts = hostname.split(".");
+            if (parts.length >= 3) {
+              const tenantName = parts[0];
+              console.log("Extracted tenant name from URL:", tenantName);
+              return tenantName;
             }
           }
-          return "unknown_user";
+
+          // Method 2: For localhost - try Qlik methods
+          if (
+            window.location.hostname === "localhost" ||
+            window.location.hostname === "127.0.0.1"
+          ) {
+            console.log("DEBUG: Running in localhost environment");
+
+            // Try qlik.getGlobal() for localhost
+            if (window.qlik && window.qlik.getGlobal) {
+              try {
+                const global = await window.qlik.getGlobal();
+                if (global && global.getAuthenticatedUser) {
+                  const user = await global.getAuthenticatedUser();
+                  if (user && (user.qName || user.userId || user.name)) {
+                    const username = user.qName || user.userId || user.name;
+                    console.log(
+                      "Got username from qlik.getGlobal():",
+                      username
+                    );
+                    return username;
+                  }
+                }
+              } catch (globalError) {
+                console.log("DEBUG: qlik.getGlobal() failed:", globalError);
+              }
+            }
+
+            // Check galaxy for localhost
+            if (typeof galaxy !== "undefined" && galaxy) {
+              const galaxyUserPaths = [
+                () => galaxy.session?.config?.user,
+                () => galaxy.session?.user,
+                () => galaxy.user,
+                () => galaxy.sense?.user,
+                () => galaxy.hostConfig?.user,
+              ];
+
+              for (const getUser of galaxyUserPaths) {
+                try {
+                  const userInfo = getUser();
+                  if (userInfo) {
+                    const username =
+                      typeof userInfo === "string"
+                        ? userInfo
+                        : userInfo.name ||
+                          userInfo.email ||
+                          userInfo.userId ||
+                          userInfo.user;
+
+                    if (username && typeof username === "string") {
+                      console.log("Got username from galaxy:", username);
+                      return username;
+                    }
+                  }
+                } catch (pathError) {
+                  // Silent fail, try next path
+                }
+              }
+            }
+          }
+
+          // Method 3: Fallback username generation
+          if (hostname.includes(".qlikcloud.com")) {
+            const fallbackUser = `qlik_cloud_user_${Date.now()
+              .toString()
+              .slice(-6)}`;
+            console.log("Using Qlik Cloud fallback:", fallbackUser);
+            return fallbackUser;
+          } else {
+            const fallbackUser = `qlik_user_${Date.now().toString().slice(-6)}`;
+            console.log("Using fallback username:", fallbackUser);
+            return fallbackUser;
+          }
         } catch (error) {
-          console.log("Could not get username:", error.message);
-          return "unknown_user";
+          console.error("Error in getCurrentUsername:", error);
+          return `error_user_${Date.now()}`;
         }
       };
 
-      // REPLACE: Updated saveAllChanges function for database
-      // Updated saveAllChanges function with dynamic SQL building
+      // Simplified username retrieval - no prompts, just auto-detection
+      const getOrPromptUsername = async () => {
+        // Check if we already have a stored username
+        let storedUsername = localStorage.getItem("writeback_username");
+
+        if (!storedUsername) {
+          // Try automatic detection
+          storedUsername = await getCurrentUsername();
+
+          // Store the detected username
+          localStorage.setItem("writeback_username", storedUsername);
+          console.log("Stored username:", storedUsername);
+        } else {
+          console.log("Using cached username:", storedUsername);
+        }
+
+        return storedUsername;
+      };
+
+      // Modified saveAllChanges function using the enhanced username detection
       const saveAllChanges = async () => {
         console.log("Saving all changes to PostgreSQL database:", editedData);
 
-        // Disable save buttons immediately
         const saveButtons = document.querySelectorAll(".save-all-button");
         saveButtons.forEach((btn) => {
           btn.disabled = true;
         });
 
         try {
-          // Show processing indicator
           const processingIndicator = document.createElement("div");
           processingIndicator.className = "save-message processing";
           processingIndicator.innerHTML = `
@@ -398,12 +488,15 @@ export default function supernova(galaxy) {
             .querySelector(".writeback-table-container")
             .appendChild(processingIndicator);
 
-          // Get metadata
-          const username = await getCurrentUsername();
-          const saveTimestamp = new Date().toISOString();
-          const appId = Date.now().toString(); // Generate unique app ID
+          // Use the enhanced username detection with user prompt fallback
+          let username = await getOrPromptUsername();
 
-          // Build SQL directly in frontend
+          console.log("Final username for save operation:", username);
+
+          const saveTimestamp = new Date().toISOString();
+          const appId = Date.now().toString();
+
+          // Rest of your existing save logic remains the same...
           const sqlStatements = [];
 
           if (tableData && tableData.rows) {
@@ -412,7 +505,6 @@ export default function supernova(galaxy) {
                 ? row.AccountID.value
                 : `row-${rowIndex}-page-${currentPage}`;
 
-              // Check if this row has any edits
               const statusKey = `${accountId}-status`;
               const commentsKey = `${accountId}-comments`;
               const hasEdits =
@@ -420,12 +512,11 @@ export default function supernova(galaxy) {
                 editedData[commentsKey] !== undefined;
 
               if (hasEdits) {
-                // Get all the values for this row
                 const baseFee = parseFloat(row.BaseFee?.value) || 0;
                 const planType = (row.PlanType?.value || "").replace(
                   /'/g,
                   "''"
-                ); // Escape quotes
+                );
                 const promotion = (row.Promotion?.value || "").replace(
                   /'/g,
                   "''"
@@ -447,9 +538,16 @@ export default function supernova(galaxy) {
                   row.comments?.value ||
                   ""
                 ).replace(/'/g, "''");
-                const escapedUsername = username.replace(/'/g, "''");
 
-                // Build individual SQL statement for this row
+                const escapedUsername = (username || "system_user").replace(
+                  /'/g,
+                  "''"
+                );
+                console.log(
+                  "Using escaped username for SQL:",
+                  escapedUsername
+                );
+
                 const sql = `INSERT INTO writeback_data (
             app_id, account_id, base_fee, plan_type, promotion,
             service_tickets, service_rating, probability_of_churn, shap_value,
@@ -491,23 +589,21 @@ export default function supernova(galaxy) {
             });
           }
 
+          // Continue with existing save logic...
           if (sqlStatements.length === 0) {
             processingIndicator.remove();
             showMessage("No changes to save", "warning");
             return;
           }
-          // Send each SQL statement separately in sequence
+
           console.log(
             `Generated ${sqlStatements.length} SQL statements for database`
           );
 
           let successCount = 0;
           const errors = [];
-
-          // Get webhook URL
           const fullWebhookUrl = `${ENV.DB_SAVE_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_SAVE_TOKEN}`;
 
-          // Process each SQL statement sequentially
           for (let i = 0; i < sqlStatements.length; i++) {
             const payload = sqlStatements[i];
 
@@ -548,22 +644,17 @@ export default function supernova(galaxy) {
               errors.push(`Statement ${i + 1}: ${error.message}`);
             }
 
-            // Small delay between requests to avoid overwhelming the automation
             if (i < sqlStatements.length - 1) {
-              await new Promise((resolve) => setTimeout(resolve, 200)); // 200ms delay
+              await new Promise((resolve) => setTimeout(resolve, 200));
             }
           }
 
-          // Remove processing indicator
           processingIndicator.remove();
 
-          // Handle final results
           if (errors.length === 0) {
             console.log("All SQL statements executed successfully");
-            // Clear edited data and update UI
             setEditedData({});
             setHasUnsavedChanges(false);
-
             showMessage(
               `Successfully saved ${successCount} records to database`,
               "success"
@@ -579,7 +670,6 @@ export default function supernova(galaxy) {
           console.error("Error saving to database:", error);
           showMessage(`Error saving changes: ${error.message}`, "error");
         } finally {
-          // Re-enable save buttons
           saveButtons.forEach((btn) => {
             btn.disabled = false;
           });
