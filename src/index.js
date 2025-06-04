@@ -349,147 +349,6 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Updated saveAllChanges function
-
-      const saveAllChanges = async () => {
-        console.log("Saving all changes via Qlik Automation:", editedData);
-
-        // Immediately disable all save buttons to prevent multiple clicks
-        const saveButtons = document.querySelectorAll(".save-all-button");
-        saveButtons.forEach((btn) => {
-          btn.disabled = true;
-        });
-
-        try {
-          // 1. Store in localStorage as backup
-          const savedData = {
-            timestamp: new Date().toISOString(),
-            changes: editedData,
-          };
-          localStorage.setItem(
-            "qlik-writeback-table-data",
-            JSON.stringify(savedData)
-          );
-          console.log("Changes saved to local storage");
-
-          // 2. Show processing indicator
-          const processingIndicator = document.createElement("div");
-          processingIndicator.className = "save-message processing";
-          processingIndicator.innerHTML = `
-      <div>Processing via Qlik Automation...</div>
-      <div style="font-size: 0.9em; margin-top: 5px;">Uploading to Amazon S3</div>
-    `;
-          document
-            .querySelector(".writeback-table-container")
-            .appendChild(processingIndicator);
-
-          // 3. Get metadata
-          const username = await getCurrentUsername();
-          const saveTimestamp = new Date().toISOString();
-          const appId = layout.qInfo.qId.split("_")[0] || "unknown";
-
-          // 4. Format data
-          const formattedData = [];
-
-          if (tableData && tableData.rows) {
-            tableData.rows.forEach((row, rowIndex) => {
-              const accountId = row.AccountID
-                ? row.AccountID.value
-                : `row-${rowIndex}-page-${currentPage}`;
-
-              const hasEditedData = Object.keys(editedData).some((key) =>
-                key.startsWith(`${accountId}-`)
-              );
-
-              if (hasEditedData) {
-                const dataRow = {
-                  ModifiedTimestamp: saveTimestamp,
-                  ModifiedBy: username,
-                  AppID: appId,
-                  RowID: accountId,
-                };
-
-                // Add dimension values
-                tableData.headers.forEach((header) => {
-                  if (header.type === "dimension" && row[header.id]) {
-                    const cleanColumnName = header.id.replace(/[,"\n\r]/g, "_");
-                    dataRow[cleanColumnName] = row[header.id].value || "";
-                  }
-                });
-
-                // Add measure values
-                tableData.headers.forEach((header) => {
-                  if (header.type === "measure" && row[header.id]) {
-                    const cleanColumnName = header.id.replace(/[,"\n\r]/g, "_");
-                    dataRow[cleanColumnName] = row[header.id].value || "";
-                  }
-                });
-
-                // Add writeback values
-                if (layout.tableOptions?.allowWriteback) {
-                  const statusKey = `${accountId}-status`;
-                  dataRow.Status =
-                    editedData[statusKey] ||
-                    (row.status ? row.status.value : "");
-
-                  const commentsKey = `${accountId}-comments`;
-                  dataRow.Comments =
-                    editedData[commentsKey] ||
-                    (row.comments ? row.comments.value : "");
-                }
-
-                formattedData.push(dataRow);
-              }
-            });
-          }
-
-          if (formattedData.length === 0) {
-            processingIndicator.remove();
-            const noDataMessage = document.createElement("div");
-            noDataMessage.className = "save-message warning";
-            noDataMessage.textContent = "No changes to save";
-            document
-              .querySelector(".writeback-table-container")
-              .appendChild(noDataMessage);
-            setTimeout(() => noDataMessage.remove(), 3000);
-            return;
-          }
-
-          // 5. Convert to CSV
-          const csvContent = convertToCSV(formattedData);
-
-          // Create unique filename with timestamp
-          // This prevents overwrites when multiple users save
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-          const fileName = `feedback_${appId}_${timestamp}_${username.replace(
-            /[^a-zA-Z0-9]/g,
-            "_"
-          )}.csv`;
-
-          console.log(`Uploading ${formattedData.length} rows via automation`);
-          console.log(`Unique filename: ${fileName}`);
-
-          // Upload with unique filename
-          const uploadSuccess = await uploadCSVToS3(csvContent, fileName);
-
-          if (uploadSuccess) {
-            processingIndicator.remove();
-            setHasUnsavedChanges(false);
-
-            // Trigger merge process after successful upload
-            triggerMergeProcess(appId);
-          }
-        } catch (err) {
-          console.error("Error in automation save process:", err);
-          // ... error handling remains the same
-        } finally {
-          // Always re-enable save buttons
-          saveButtons.forEach((btn) => {
-            btn.disabled = false;
-          });
-        }
-      };
-
       // Helper function to get current username
       const getCurrentUsername = async () => {
         try {
@@ -516,260 +375,227 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Helper function to convert data to CSV
-      const convertToCSV = (data) => {
-        if (!data || data.length === 0) return "";
+      // REPLACE: Updated saveAllChanges function for database
+      // Updated saveAllChanges function with dynamic SQL building
+      const saveAllChanges = async () => {
+        console.log("Saving all changes to PostgreSQL database:", editedData);
 
-        // Get headers from first row
-        const headers = Object.keys(data[0]);
-
-        // Create CSV header row
-        let csv = headers.join(",") + "\n";
-
-        // Add data rows with proper CSV escaping
-        data.forEach((row) => {
-          const values = headers.map((header) => {
-            let value = row[header] || "";
-            value = String(value);
-
-            // Escape CSV special characters
-            if (
-              value.includes(",") ||
-              value.includes('"') ||
-              value.includes("\n") ||
-              value.includes("\r")
-            ) {
-              value = `"${value.replace(/"/g, '""')}"`;
-            }
-            return value;
-          });
-          csv += values.join(",") + "\n";
+        // Disable save buttons immediately
+        const saveButtons = document.querySelectorAll(".save-all-button");
+        saveButtons.forEach((btn) => {
+          btn.disabled = true;
         });
 
-        return csv;
-      };
-
-      //  uploadCSVToS3 function
-
-      const uploadCSVToS3 = async (csvContent, fileName) => {
         try {
-          console.log("Starting Amazon S3 upload via Qlik Automation...");
-          console.log("File name:", fileName);
+          // Show processing indicator
+          const processingIndicator = document.createElement("div");
+          processingIndicator.className = "save-message processing";
+          processingIndicator.innerHTML = `
+      <div>Saving to database...</div>
+      <div style="font-size: 0.9em; margin-top: 5px;">Real-time sync enabled</div>
+    `;
+          document
+            .querySelector(".writeback-table-container")
+            .appendChild(processingIndicator);
 
-          // Use working automation ID that successfully receives data
-          //const automationWebhookUrl = "";
-          const automationWebhookUrl = ENV.S3_UPLOAD_WEBHOOK_URL;
+          // Get metadata
+          const username = await getCurrentUsername();
+          const saveTimestamp = new Date().toISOString();
+          const appId = Date.now().toString(); // Generate unique app ID
 
-          // Use  working execution token
-          //const executionToken = "";
-          const executionToken = ENV.S3_UPLOAD_TOKEN;
+          // Build SQL directly in frontend
+          const sqlStatements = [];
 
-          // CHANGED: Remove action from URL query parameter - only use execution token
-          const fullWebhookUrl = `${automationWebhookUrl}?X-Execution-Token=${executionToken}`;
+          if (tableData && tableData.rows) {
+            tableData.rows.forEach((row, rowIndex) => {
+              const accountId = row.AccountID
+                ? row.AccountID.value
+                : `row-${rowIndex}-page-${currentPage}`;
 
-          // CORRECTED: Match what the S3 automation blocks expect
-          const payload = {
-            action: "upload_writeback_data",
-            fileName: fileName, // Changed back to fileName (matches {$.Start.body.fileName})
-            csvContent: csvContent, // Changed back to csvContent (matches {$.Start.body.csvContent})
-            timestamp: new Date().toISOString(),
-            appId: "uJkrd",
-            userAgent: navigator.userAgent,
-          };
+              // Check if this row has any edits
+              const statusKey = `${accountId}-status`;
+              const commentsKey = `${accountId}-comments`;
+              const hasEdits =
+                editedData[statusKey] !== undefined ||
+                editedData[commentsKey] !== undefined;
 
-          console.log("Sending data to S3 automation webhook...");
-          console.log("Payload action:", payload.action);
-          console.log("Full payload:", payload);
+              if (hasEdits) {
+                // Get all the values for this row
+                const baseFee = parseFloat(row.BaseFee?.value) || 0;
+                const planType = (row.PlanType?.value || "").replace(
+                  /'/g,
+                  "''"
+                ); // Escape quotes
+                const promotion = (row.Promotion?.value || "").replace(
+                  /'/g,
+                  "''"
+                );
+                const serviceTickets = parseInt(row.ServiceTickets?.value) || 0;
+                const serviceRating = parseFloat(row.ServiceRating?.value) || 0;
+                const probabilityOfChurn =
+                  parseFloat(
+                    row["Probability of Churn"]?.value?.replace("%", "")
+                  ) || 0;
+                const shapValue = parseFloat(row["SHAP Value"]?.value) || 0;
+                const modelFeedback = (
+                  editedData[statusKey] ||
+                  row.status?.value ||
+                  ""
+                ).replace(/'/g, "''");
+                const comments = (
+                  editedData[commentsKey] ||
+                  row.comments?.value ||
+                  ""
+                ).replace(/'/g, "''");
+                const escapedUsername = username.replace(/'/g, "''");
 
-          // Use your proven working fetch call
-          const response = await fetch(fullWebhookUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": "Qlik-Writeback-Extension",
-            },
-            body: JSON.stringify(payload),
-          });
+                // Build individual SQL statement for this row
+                const sql = `INSERT INTO writeback_data (
+            app_id, account_id, base_fee, plan_type, promotion,
+            service_tickets, service_rating, probability_of_churn, shap_value,
+            model_feedback, comments, created_by, modified_by, created_at, modified_at
+          ) VALUES (
+            '${appId}',
+            '${accountId}',
+            ${baseFee},
+            '${planType}',
+            '${promotion}',
+            ${serviceTickets},
+            ${serviceRating},
+            ${probabilityOfChurn},
+            ${shapValue},
+            '${modelFeedback}',
+            '${comments}',
+            '${escapedUsername}',
+            '${escapedUsername}',
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+          )
+          ON CONFLICT (app_id, account_id) 
+          DO UPDATE SET 
+            base_fee = EXCLUDED.base_fee,
+            plan_type = EXCLUDED.plan_type,
+            promotion = EXCLUDED.promotion,
+            service_tickets = EXCLUDED.service_tickets,
+            service_rating = EXCLUDED.service_rating,
+            probability_of_churn = EXCLUDED.probability_of_churn,
+            shap_value = EXCLUDED.shap_value,
+            model_feedback = EXCLUDED.model_feedback,
+            comments = EXCLUDED.comments,
+            modified_by = EXCLUDED.modified_by,
+            modified_at = CURRENT_TIMESTAMP,
+            version = writeback_data.version + 1;`;
 
+                sqlStatements.push(sql);
+              }
+            });
+          }
+
+          if (sqlStatements.length === 0) {
+            processingIndicator.remove();
+            showMessage("No changes to save", "warning");
+            return;
+          }
+          // Send each SQL statement separately in sequence
           console.log(
-            "Webhook response:",
-            response.status,
-            response.statusText
+            `Generated ${sqlStatements.length} SQL statements for database`
           );
 
-          if (response.ok) {
-            let responseData;
+          let successCount = 0;
+          const errors = [];
+
+          // Get webhook URL
+          const fullWebhookUrl = `${ENV.DB_SAVE_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_SAVE_TOKEN}`;
+
+          // Process each SQL statement sequentially
+          for (let i = 0; i < sqlStatements.length; i++) {
+            const payload = sqlStatements[i];
+
             try {
-              responseData = await response.json();
-              console.log("S3 Automation response:", responseData);
-            } catch (e) {
-              responseData = await response.text();
-              console.log("S3 Automation response (text):", responseData);
+              console.log(
+                `Sending SQL statement ${i + 1}/${
+                  sqlStatements.length
+                } to automation`
+              );
+
+              const response = await fetch(fullWebhookUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "text/plain",
+                  "User-Agent": "Qlik-Writeback-Extension-DB",
+                },
+                body: payload,
+              });
+
+              if (response.ok) {
+                const result = await response.text();
+                successCount++;
+                console.log(
+                  `SQL statement ${i + 1} executed successfully:`,
+                  result
+                );
+              } else {
+                const errorText = await response.text();
+                console.error(
+                  `SQL statement ${i + 1} failed:`,
+                  response.status,
+                  errorText
+                );
+                errors.push(`Statement ${i + 1}: ${errorText}`);
+              }
+            } catch (error) {
+              console.error(`Error with SQL statement ${i + 1}:`, error);
+              errors.push(`Statement ${i + 1}: ${error.message}`);
             }
 
-            // Show success message
-            const successMessage = document.createElement("div");
-            successMessage.className = "save-message success";
-            successMessage.innerHTML = `
-        <div>Data uploaded successfully to Amazon S3!</div>
-        <div style="font-size: 0.9em; margin-top: 5px;">Processed via Qlik Automation</div>
-        <div style="font-size: 0.8em; margin-top: 3px;">File: writeback-data/${fileName}</div>
-        <div style="font-size: 0.8em; margin-top: 3px;">Check kb-writeback-table S3 bucket</div>
-      `;
+            // Small delay between requests to avoid overwhelming the automation
+            if (i < sqlStatements.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 200)); // 200ms delay
+            }
+          }
 
-            document
-              .querySelector(".writeback-table-container")
-              ?.appendChild(successMessage);
-            setTimeout(() => successMessage?.remove(), 6000);
+          // Remove processing indicator
+          processingIndicator.remove();
 
-            return true;
+          // Handle final results
+          if (errors.length === 0) {
+            console.log("All SQL statements executed successfully");
+            // Clear edited data and update UI
+            setEditedData({});
+            setHasUnsavedChanges(false);
+
+            showMessage(
+              `Successfully saved ${successCount} records to database`,
+              "success"
+            );
           } else {
-            // Handle error response
-            let errorDetails;
-            try {
-              errorDetails = await response.json();
-            } catch (e) {
-              errorDetails = await response.text();
-            }
-
-            console.error("S3 automation webhook error:", errorDetails);
-
-            const errorMessage = document.createElement("div");
-            errorMessage.className = "save-message error";
-            errorMessage.innerHTML = `
-        <div>Error uploading data</div>
-        <div style="font-size: 0.9em; margin-top: 5px;">Please check console for details</div>
-      `;
-
-            document
-              .querySelector(".writeback-table-container")
-              ?.appendChild(errorMessage);
-            setTimeout(() => errorMessage?.remove(), 6000);
-
-            throw new Error(
-              `Webhook failed: ${response.status} - ${response.statusText}`
+            console.error("Some SQL statements failed:", errors);
+            showMessage(
+              `Saved ${successCount}/${sqlStatements.length} records. ${errors.length} failed.`,
+              errors.length === sqlStatements.length ? "error" : "warning"
             );
           }
         } catch (error) {
-          console.error("S3 upload error:", error);
-          return false;
-        }
-      };
-      // Trigger merge process
-      const triggerMergeProcess = async (appId) => {
-        try {
-          // This will call your merge automation once we build it
-          console.log(
-            "Merge process will be triggered after we complete the automation"
-          );
-          // For now, just log - we'll update this after creating the merge automation
-          return true;
-        } catch (error) {
-          console.error("Error triggering merge:", error);
-          return false;
-        }
-      };
-      // UPDATED fetchExistingFeedback to read from merged file
-      const fetchExistingFeedback = async (appId) => {
-        try {
-          console.log("Fetching existing feedback for app:", appId);
-
-          const readAutomationUrl = ENV.S3_READ_WEBHOOK_URL;
-          const readExecutionToken = ENV.S3_READ_TOKEN;
-
-          const fullReadUrl = `${readAutomationUrl}?X-Execution-Token=${readExecutionToken}`;
-
-          const payload = {
-            appId: appId,
-            // Read from merged file instead of latest_feedback.csv
-            fileName: `merged_feedback_${appId}.csv`,
-          };
-
-          const response = await fetch(fullReadUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": "Qlik-Writeback-Extension-Read",
-            },
-            body: JSON.stringify(payload),
+          console.error("Error saving to database:", error);
+          showMessage(`Error saving changes: ${error.message}`, "error");
+        } finally {
+          // Re-enable save buttons
+          saveButtons.forEach((btn) => {
+            btn.disabled = false;
           });
-
-          if (response.ok) {
-            const responseText = await response.text();
-            console.log("Raw response:", responseText);
-
-            let data = JSON.parse(responseText);
-
-            if (Array.isArray(data) && data.length > 0) {
-              data = JSON.parse(data[0]);
-            }
-
-            console.log("Successfully fetched feedback:", data);
-            return data.feedbackData || {};
-          } else {
-            console.warn("Could not fetch existing feedback:", response.status);
-            return {};
-          }
-        } catch (error) {
-          console.error("Error fetching feedback:", error);
-          return {};
         }
       };
-      // Function to merge Qlik data with existing feedback
-      const mergeWithExistingFeedback = (qlikTableData, feedbackData) => {
-        if (!qlikTableData || !qlikTableData.rows) return qlikTableData;
 
-        console.log("Merging feedback data:", feedbackData);
+      // ADD: Helper function for showing messages
+      const showMessage = (text, type) => {
+        const message = document.createElement("div");
+        message.className = `save-message ${type}`;
+        message.textContent = text;
 
-        const mergedRows = qlikTableData.rows.map((row) => {
-          // Get the account ID for this row
-          const accountId = row.AccountID ? row.AccountID.value : null;
-
-          if (accountId && feedbackData[accountId]) {
-            console.log(
-              `Found existing feedback for ${accountId}:`,
-              feedbackData[accountId]
-            );
-
-            // Update writeback columns with existing feedback
-            if (row.status) {
-              row.status.value = feedbackData[accountId].status || "";
-            }
-            if (row.comments) {
-              row.comments.value = feedbackData[accountId].comments || "";
-            }
-          }
-
-          return row;
-        });
-
-        return {
-          ...qlikTableData,
-          rows: mergedRows,
-        };
-      };
-
-      // Enhanced download function with better user feedback
-      const downloadCSV = (csvContent, fileName) => {
-        try {
-          const blob = new Blob([csvContent], { type: "text/csv" });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = fileName;
-
-          // Add the link to the document temporarily
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-
-          // Clean up the URL
-          URL.revokeObjectURL(url);
-
-          console.log("CSV file downloaded:", fileName);
-        } catch (error) {
-          console.error("Error downloading CSV:", error);
-        }
+        document
+          .querySelector(".writeback-table-container")
+          ?.appendChild(message);
+        setTimeout(() => message?.remove(), 4000);
       };
 
       // Load saved data from localStorage
@@ -850,39 +676,14 @@ export default function supernova(galaxy) {
             if (shouldResetToPageOne || pageToUse === 1) {
               // Process first page data from layout
               const qlikFormattedData = processData({ layout });
-
-              // NEW: Fetch existing feedback and merge
-              if (layout.tableOptions?.allowWriteback) {
-                const appId = layout.qInfo?.qId?.split("_")[0] || "uJkrd";
-                console.log("Fetching feedback for appId:", appId);
-                const existingFeedback = await fetchExistingFeedback(appId);
-                const mergedData = mergeWithExistingFeedback(
-                  qlikFormattedData,
-                  existingFeedback
-                );
-                setTableData(mergedData);
-              } else {
-                setTableData(qlikFormattedData);
-              }
+              setTableData(qlikFormattedData);
             } else {
-              // For other pages, fetch page data first, then merge
+              // For other pages, fetch page data first
               try {
                 const pageData = await fetchPageData(pageToUse);
                 if (pageData && pageData.length > 0) {
                   const qlikFormattedData = processData({ layout, pageData });
-
-                  // NEW: Fetch and merge feedback for this page too
-                  if (layout.tableOptions?.allowWriteback) {
-                    const appId = layout.qInfo?.qId?.split("_")[0] || "uJkrd";
-                    const existingFeedback = await fetchExistingFeedback(appId);
-                    const mergedData = mergeWithExistingFeedback(
-                      qlikFormattedData,
-                      existingFeedback
-                    );
-                    setTableData(mergedData);
-                  } else {
-                    setTableData(qlikFormattedData);
-                  }
+                  setTableData(qlikFormattedData);
                 } else {
                   console.warn(
                     "Could not fetch data for the current page, falling back to page 1"
