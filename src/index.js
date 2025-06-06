@@ -149,6 +149,247 @@ function processData({ layout, pageData }) {
   };
 }
 
+// --- UPDATED: Improved fetchLatestWritebacks function ---
+async function fetchLatestWritebacks(appId) {
+  console.log("Fetching latest writebacks for app_id:", appId);
+
+  const webhookUrl = `${ENV.DB_READ_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_READ_TOKEN}`;
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Qlik-Writeback-Extension-Read",
+      },
+      body: JSON.stringify({
+        app_id: appId,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(
+        "Fetch writeback response error:",
+        response.status,
+        errorText
+      );
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log("Raw DB response data:", data);
+
+    // Handle different response formats from your automation
+    let writebackRows = [];
+
+    if (Array.isArray(data)) {
+      // Check if it's a nested array (your case)
+      if (data.length > 0 && Array.isArray(data[0])) {
+        // Flatten the nested array
+        writebackRows = data[0];
+        console.log("Flattened nested array - using data[0]");
+      } else {
+        writebackRows = data;
+        console.log("Using data as direct array");
+      }
+    } else if (data.DoQuery && Array.isArray(data.DoQuery)) {
+      writebackRows = data.DoQuery;
+    } else if (data.result && Array.isArray(data.result)) {
+      writebackRows = data.result;
+    } else if (data.body && Array.isArray(data.body)) {
+      writebackRows = data.body;
+    } else if (data.data && Array.isArray(data.data)) {
+      writebackRows = data.data;
+    } else {
+      console.warn("Unexpected response format:", data);
+      return [];
+    }
+
+    console.log("Processed writeback rows:", writebackRows);
+    console.log("Number of rows:", writebackRows.length);
+
+    // Additional validation - make sure we have objects with the right structure
+    if (writebackRows.length > 0) {
+      const firstRow = writebackRows[0];
+      console.log("First row structure:", firstRow);
+
+      // Check if the first row has the expected account_id field
+      if (!firstRow.account_id && !firstRow.accountId && !firstRow.AccountID) {
+        console.warn(
+          "Warning: First row doesn't have account_id field. Available fields:",
+          Object.keys(firstRow)
+        );
+      }
+    }
+
+    return writebackRows;
+  } catch (err) {
+    console.error("Error fetching latest writebacks:", err);
+    return [];
+  }
+}
+// --- UPDATED: Improved mergeWritebackData function ---
+function mergeWritebackData(tableRows, writebackRows) {
+  console.log("Starting merge process...");
+  console.log("Table rows count:", tableRows?.length || 0);
+  console.log("Writeback rows count:", writebackRows?.length || 0);
+
+  if (!tableRows || !Array.isArray(tableRows) || tableRows.length === 0) {
+    console.log("No table rows to merge");
+    return tableRows || [];
+  }
+
+  if (
+    !writebackRows ||
+    !Array.isArray(writebackRows) ||
+    writebackRows.length === 0
+  ) {
+    console.log("No writeback data to merge");
+    return tableRows;
+  }
+
+  // Create a map for faster lookups - using the latest version for each account
+  const wbMap = new Map();
+
+  // First, group by account_id and find the latest version for each account
+  const accountGroups = {};
+  writebackRows.forEach((r, index) => {
+    console.log(`Processing writeback row ${index}:`, r);
+
+    const accountId = r.account_id || r.accountId || r.AccountID || r.id;
+    if (accountId) {
+      if (!accountGroups[accountId]) {
+        accountGroups[accountId] = [];
+      }
+      accountGroups[accountId].push(r);
+    }
+  });
+
+  // For each account, keep only the latest version
+  Object.keys(accountGroups).forEach((accountId) => {
+    const records = accountGroups[accountId];
+    // Sort by version descending, then by created_at descending
+    records.sort((a, b) => {
+      if (a.version !== b.version) {
+        return (b.version || 0) - (a.version || 0);
+      }
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+
+    const latestRecord = records[0];
+    console.log(`Latest record for account ${accountId}:`, latestRecord);
+
+    // Store only string version - NEVER add NaN to the map
+    wbMap.set(String(accountId), latestRecord);
+
+    // Only add number version if it's actually a valid number
+    const numericId = Number(accountId);
+    if (!isNaN(numericId)) {
+      wbMap.set(numericId, latestRecord);
+      console.log(`Also mapped numeric version: ${numericId}`);
+    } else {
+      console.log(`Skipped numeric mapping for non-numeric ID: ${accountId}`);
+    }
+  });
+
+  console.log("Created writeback map with keys:", Array.from(wbMap.keys()));
+
+  // Merge the data
+  const mergedRows = tableRows.map((row, rowIndex) => {
+    // Try to get account ID from different possible fields
+    let accountId = null;
+
+    if (row.AccountID?.value) {
+      accountId = row.AccountID.value;
+    } else if (row.accountId?.value) {
+      accountId = row.accountId.value;
+    } else if (row.account_id?.value) {
+      accountId = row.account_id.value;
+    }
+
+    console.log(
+      `Row ${rowIndex} - Account ID: ${accountId} (${typeof accountId})`
+    );
+
+    if (!accountId) {
+      console.log(`Row ${rowIndex} - No account ID found, skipping merge`);
+      return row;
+    }
+
+    // Try to find matching writeback data - check string first, then number only if valid
+    let wb = wbMap.get(String(accountId));
+
+    if (!wb) {
+      const numericId = Number(accountId);
+      if (!isNaN(numericId)) {
+        wb = wbMap.get(numericId);
+      }
+    }
+
+    if (wb) {
+      console.log(`Row ${rowIndex} - Found matching writeback:`, wb);
+
+      // Create a new row object to avoid mutation
+      const updatedRow = { ...row };
+
+      // Update status field if it exists
+      if (updatedRow.status && typeof updatedRow.status === "object") {
+        updatedRow.status = {
+          ...updatedRow.status,
+          value: wb.model_feedback || wb.status || "",
+        };
+        console.log(
+          `Row ${rowIndex} - Updated status to: ${updatedRow.status.value}`
+        );
+      }
+
+      // Update comments field if it exists
+      if (updatedRow.comments && typeof updatedRow.comments === "object") {
+        updatedRow.comments = {
+          ...updatedRow.comments,
+          value: wb.comments || "",
+        };
+        console.log(
+          `Row ${rowIndex} - Updated comments to: ${updatedRow.comments.value}`
+        );
+      }
+
+      return updatedRow;
+    } else {
+      console.log(
+        `Row ${rowIndex} - No matching writeback found for account: ${accountId}`
+      );
+      return row; // Return original row unchanged
+    }
+  });
+
+  console.log("Merge completed successfully");
+  console.log(
+    "Rows with writeback data:",
+    mergedRows.filter(
+      (row) =>
+        (row.status?.value && row.status.value !== "") ||
+        (row.comments?.value && row.comments.value !== "")
+    ).length
+  );
+
+  return mergedRows;
+}
+
+const getConsistentAppId = (model) => {
+  // Try to get app ID from URL first (most reliable)
+  const urlParams = new URLSearchParams(window.location.search);
+  const appIdFromUrl = urlParams.get("app") || urlParams.get("appid");
+
+  if (appIdFromUrl) {
+    return `qlik_app_${appIdFromUrl}`;
+  }
+
+  // Fallback to model ID if URL doesn't have it
+  const modelId = model?.id || "default";
+  return `qlik_app_${modelId}`;
+};
 /**
  * Main extension entry point - the supernova function
  */
@@ -506,8 +747,9 @@ export default function supernova(galaxy) {
           console.log("Final username for save operation:", username);
 
           const saveTimestamp = new Date().toISOString();
-          const appId = "qlik_app_" + (model?.id || "default"); // Consistent app_id
-
+          //const appId = "qlik_app_" + (model?.id || "default"); // Consistent app_id
+          // NEW CODE - Get consistent app_id from URL:
+          const appId = getConsistentAppId(model); // Use the new function
           const sqlStatements = [];
 
           if (tableData && tableData.rows) {
@@ -716,6 +958,27 @@ export default function supernova(galaxy) {
               `Successfully saved ${successCount} records to database`,
               "success"
             );
+            // ---- IMMEDIATE REFRESH FROM DB ----
+            try {
+              //const appId = "qlik_app_" + (model?.id || "default");
+              const appId = getConsistentAppId(model); // Use the new function
+              fetchLatestWritebacks(appId).then((latestWritebacks) => {
+                // Safely merge into latest tableData
+                setTableData((prevData) => {
+                  if (!prevData || !prevData.rows) return prevData;
+                  const mergedRows = mergeWritebackData(
+                    prevData.rows,
+                    latestWritebacks
+                  );
+                  return { ...prevData, rows: mergedRows };
+                });
+              });
+            } catch (err) {
+              console.warn(
+                "Could not fetch/merge latest writebacks after save:",
+                err
+              );
+            }
           } else {
             console.error("Some SQL statements failed:", errors);
             showMessage(
@@ -739,7 +1002,7 @@ export default function supernova(galaxy) {
       };
 
       // Function to get latest version of records for reading/display
-      const getLatestVersions = () => {
+      /*      const getLatestVersions = () => {
         // This would be used when loading data to show only the latest version
         // SQL query would be something like:
         const latestVersionQuery = `
@@ -762,7 +1025,7 @@ export default function supernova(galaxy) {
 
         return latestVersionQuery;
       };
-
+ */
       // ADD: Helper function for showing messages
       const showMessage = (text, type) => {
         const message = document.createElement("div");
@@ -791,7 +1054,6 @@ export default function supernova(galaxy) {
         }
       }, []);
 
-      // Then modify the beginning of your layout useEffect:
       useEffect(() => {
         // Generate a unique ID for this layout
         const layoutId = layout.qInfo?.qId || "";
@@ -847,43 +1109,126 @@ export default function supernova(galaxy) {
           );
           setPaginationInfo(paginationInfo);
 
-          // Process data appropriately based on page
+          console.log("=== Starting DB data fetch and merge ===");
+          //const appId = "qlik_app_" + (model?.id || "default");
+          const appId = getConsistentAppId(model); // Use the new function
+          console.log("Using app_id for fetch:", appId);
 
+          // --- UPDATED: Process data with improved merge logic ---
+          // In your useEffect, find the processLayoutData function and modify it like this:
           const processLayoutData = async () => {
+            let qlikFormattedData;
+
+            // Always process page data (fetch from Qlik model if not page 1)
             if (shouldResetToPageOne || pageToUse === 1) {
-              // Process first page data from layout
-              const qlikFormattedData = processData({ layout });
-              setTableData(qlikFormattedData);
+              qlikFormattedData = processData({ layout });
             } else {
-              // For other pages, fetch page data first
               try {
                 const pageData = await fetchPageData(pageToUse);
                 if (pageData && pageData.length > 0) {
-                  const qlikFormattedData = processData({ layout, pageData });
-                  setTableData(qlikFormattedData);
+                  qlikFormattedData = processData({ layout, pageData });
                 } else {
-                  console.warn(
-                    "Could not fetch data for the current page, falling back to page 1"
-                  );
-                  const qlikFormattedData = processData({ layout });
-                  setTableData(qlikFormattedData);
+                  qlikFormattedData = processData({ layout });
                   setCurrentPage(1);
                 }
               } catch (error) {
                 console.error("Error fetching page data:", error);
-                const qlikFormattedData = processData({ layout });
-                setTableData(qlikFormattedData);
+                qlikFormattedData = processData({ layout });
                 setCurrentPage(1);
               }
             }
+
+            // --- ENHANCED: Fetch and merge DB writeback data ---
+            console.log("=== Starting DB data fetch and merge ===");
+            const appId = getConsistentAppId(model);
+            console.log("Using app_id for fetch:", appId);
+
+            let mergedRows = qlikFormattedData.rows;
+
+            try {
+              const latestWritebacks = await fetchLatestWritebacks(appId);
+              console.log("Raw fetched writeback data:", latestWritebacks);
+
+              if (latestWritebacks && latestWritebacks.length > 0) {
+                console.log(
+                  "Processing",
+                  latestWritebacks.length,
+                  "writeback records"
+                );
+                mergedRows = mergeWritebackData(
+                  qlikFormattedData.rows,
+                  latestWritebacks
+                );
+
+                // *** DEBUG CODE ***
+                console.log("=== POST-MERGE DEBUG ===");
+                console.log("Total merged rows:", mergedRows.length);
+
+                // Check first 5 rows
+                mergedRows.slice(0, 5).forEach((row, index) => {
+                  const accountId =
+                    row.AccountID?.value ||
+                    row.accountId?.value ||
+                    row.account_id?.value;
+                  const statusValue = row.status?.value || "empty";
+                  const commentsValue = row.comments?.value || "empty";
+
+                  console.log(
+                    `Row ${index}: AccountID=${accountId}, Status=${statusValue}, Comments=${commentsValue}`
+                  );
+                });
+
+                // Count how many rows have writeback data
+                const rowsWithData = mergedRows.filter(
+                  (row) =>
+                    (row.status?.value && row.status.value !== "") ||
+                    (row.comments?.value && row.comments.value !== "")
+                );
+                console.log("Rows with writeback data:", rowsWithData.length);
+
+                if (rowsWithData.length > 1) {
+                  console.log(
+                    "=== ERROR: Multiple rows have writeback data when only aa16889 should ==="
+                  );
+                  rowsWithData.forEach((row, index) => {
+                    const accountId =
+                      row.AccountID?.value ||
+                      row.accountId?.value ||
+                      row.account_id?.value;
+                    console.log(`Unexpected writeback on: ${accountId}`);
+                  });
+                }
+                // *** END DEBUG CODE ***
+
+                console.log(
+                  "Successfully merged writeback data into",
+                  mergedRows.length,
+                  "table rows"
+                );
+              } else {
+                console.log(
+                  "No writeback data found - using original Qlik data"
+                );
+              }
+            } catch (err) {
+              console.error("Error fetching/merging DB writeback data:", err);
+              console.log("Falling back to original Qlik data without merge");
+            }
+
+            // Set the final table data
+            setTableData({ ...qlikFormattedData, rows: mergedRows });
+            console.log("=== Table data updated with merge complete ===");
           };
+          // REMOVE THE DEBUG CODE FROM WHERE YOU PLACED IT
+          // The debug code should be removed entirely since we've confirmed it works
+
           processLayoutData();
 
           console.log(
             `Pagination setup complete: page ${pageToUse} of ${paginationInfo.totalPages}`
           );
         }
-      }, [layout, totalRows, currentPage, userChangedPage]); // Added userChangedPage dependency
+      }, [layout, totalRows, currentPage, userChangedPage]); // Keep same dependencies
       // Render the table when tableData or editedData changes
       useEffect(() => {
         try {
@@ -2044,6 +2389,42 @@ export default function supernova(galaxy) {
           setSelectedRow(null);
         }
       }, [selections.isActive()]);
+
+      // OPTIONAL: If you want auto-refresh, replace with this improved version:
+      useEffect(() => {
+        // Only set up auto-refresh if we have valid table data
+        if (!tableData || !tableData.rows || tableData.rows.length === 0) {
+          return;
+        }
+
+        const timer = setInterval(async () => {
+          console.log("Auto-refresh: Fetching latest writeback data...");
+          //const appId = "qlik_app_" + (model?.id || "default");
+          const appId = getConsistentAppId(model); // Use the new function
+          try {
+            const latestWritebacks = await fetchLatestWritebacks(appId);
+            if (latestWritebacks && latestWritebacks.length > 0) {
+              setTableData((prevData) => {
+                if (!prevData || !prevData.rows) return prevData;
+                const mergedRows = mergeWritebackData(
+                  prevData.rows,
+                  latestWritebacks
+                );
+                console.log(
+                  "Auto-refresh: Merged",
+                  latestWritebacks.length,
+                  "writeback records"
+                );
+                return { ...prevData, rows: mergedRows };
+              });
+            }
+          } catch (err) {
+            console.warn("Auto-refresh failed:", err);
+          }
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(timer);
+      }, [model?.id]); // Only depend on model ID, not tableData to avoid infinite loops
 
       // Cleanup function when component is unmounted
       return () => {
