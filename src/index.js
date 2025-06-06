@@ -153,7 +153,7 @@ function processData({ layout, pageData }) {
 async function fetchLatestWritebacks(appId) {
   console.log("Fetching latest writebacks for app_id:", appId);
 
-  const webhookUrl = `${ENV.DB_READ_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_READ_TOKEN}`;
+  const webhookUrl = `${ENV.DB_READ_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_READ_TOKEN}&app_id=${appId}`;
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -162,7 +162,7 @@ async function fetchLatestWritebacks(appId) {
         "User-Agent": "Qlik-Writeback-Extension-Read",
       },
       body: JSON.stringify({
-        app_id: appId,
+        //app_id: appId,
         timestamp: new Date().toISOString(),
       }),
     });
