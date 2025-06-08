@@ -21,3 +21,4 @@ assets*.map
 
 # Local config for extension secrets
 /src/env.js
+/src/config/env.js

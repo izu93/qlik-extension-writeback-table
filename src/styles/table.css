@@ -1,0 +1,425 @@
+/* styles/table.css */
+/* Main table styles for Qlik writeback extension */
+
+/* Container styling */
+.writeback-table-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  font-family: Arial, sans-serif;
+}
+
+/* Table scroll wrapper - CRUCIAL FOR SCROLLING */
+.table-scroll-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  min-height: 100px;
+  max-height: calc(100% - 50px); /* Leave space for pagination */
+}
+
+/* Base table styling */
+.writeback-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Header styling */
+.writeback-table th {
+  background-color: #f2f2f2;
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 2px solid #ddd;
+  border-right: 1px solid #ddd;
+  cursor: default;
+  position: relative;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Add left border to the first cell in each row */
+.writeback-table td:first-child,
+.writeback-table th:first-child {
+  border-left: 1px solid #ddd;
+}
+
+/* Sortable header styling */
+.writeback-table th.sortable {
+  cursor: pointer;
+  padding-right: 32px; /* Make room for sort icons */
+}
+
+/* Sort icon container */
+.sort-icon-container {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Sort icon styling */
+.sort-icon {
+  font-size: 10px;
+  color: #aaa;
+  cursor: pointer;
+  margin: -2px 0;
+}
+
+/* Active sort icon */
+.sort-icon.active {
+  color: #333;
+}
+
+/* Hover effect for sort icons */
+.sort-icon:hover {
+  color: #666;
+}
+
+/* Cell styling */
+.writeback-table td {
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+  border-right: 1px solid #ddd;
+  transition: background-color 0.15s ease;
+}
+
+/* Alternating row styling */
+.writeback-table tr.alternate {
+  background-color: #f9f9f9;
+}
+
+/* Selectable cell styling */
+.writeback-table td.selectable {
+  cursor: pointer;
+}
+
+.writeback-table td.selectable:hover {
+  background-color: #f5f5f5;
+}
+
+/* Selected row styling */
+.writeback-table tr.selected-row td {
+  background-color: #e6ffe6 !important;
+  border-bottom: 1px solid #b3ffb3;
+  font-weight: bold;
+  transition: all 0.15s ease;
+}
+
+/* Input field styling */
+.writeback-table input {
+  width: 100%;
+  padding: 6px;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+}
+
+/* Explicit scrollbar styling for better visibility */
+.table-scroll-wrapper::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-thumb {
+  background-color: #aaa;
+  border-radius: 4px;
+  border: 2px solid #f0f0f0;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background-color: #888;
+}
+
+/* Pagination styling */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: #f8f8f8;
+  border-top: 1px solid #ddd;
+  min-height: 40px;
+  flex-shrink: 0; /* Prevent pagination from being compressed */
+}
+
+.rows-info {
+  color: #666;
+  font-size: 14px;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pagination-button {
+  padding: 6px 12px;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.pagination-button:hover:not(.disabled) {
+  background-color: #f0f0f0;
+  border-color: #ccc;
+}
+
+.pagination-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-number-container {
+  display: flex;
+  align-items: center;
+}
+
+.page-input {
+  width: 50px;
+  padding: 6px;
+  text-align: center;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.page-total {
+  color: #666;
+}
+
+/* Loading overlay */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.loading-overlay.active {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  margin-top: 10px;
+  font-weight: bold;
+  color: #333;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Save All Changes button styling */
+.save-all-button {
+  padding: 8px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+.save-all-button:hover {
+  background-color: #3367d6;
+}
+
+.save-all-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.save-all-button.saving {
+  background-color: orange;
+  cursor: wait;
+}
+
+.save-all-button.saving::after {
+  content: " (Saving...)";
+}
+
+/* Save message notification */
+.save-message {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: #4caf50;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-weight: bold;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: fadeInOut 3s ease-in-out;
+}
+
+.save-message.error {
+  background-color: #f44336;
+}
+
+.save-message.warning {
+  background-color: #ff9800;
+}
+
+.save-message.info {
+  background-color: #2196f3;
+}
+
+.save-message.processing {
+  background-color: #9c27b0;
+  animation: none; /* Don't auto-fade processing messages */
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  90% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+/* Status dropdown styling */
+.status-select-container {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: #f7f7f7;
+}
+
+.status-green {
+  background-color: #e6ffe6;
+}
+
+.status-red {
+  background-color: #ffe6e6;
+}
+
+.status-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.status-select {
+  flex: 1;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background-color: white;
+}
+
+.comments-input {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+/* Dropdown options styling */
+.thumbs-up-icon {
+  color: #4caf50;
+}
+
+.thumbs-down-icon {
+  color: #f44336;
+}
+
+/* Churn probability bar styling */
+.churn-bar-container {
+  position: relative;
+  height: 20px;
+  width: 100%;
+  background-color: #f3f3f3;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.churn-progress-bar {
+  position: absolute;
+  height: 100%;
+  left: 0;
+  top: 0;
+  border-radius: 4px;
+}
+
+.churn-value-text {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #333;
+  font-weight: bold;
+  text-shadow: 0 0 2px white;
+  z-index: 1;
+}
+
+/* Bar colors */
+.high-risk {
+  background-color: #ff4d4d;
+}
+
+.medium-risk {
+  background-color: #ff9900;
+}
+
+.low-risk {
+  background-color: #2ecc71;
+}
+
+.very-low-risk {
+  background-color: #27ae60;
+}
