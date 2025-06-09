@@ -694,6 +694,7 @@ export default function supernova(galaxy) {
           </div>`;
         }
       }
+      // replace the addStyles() function with this:
 
       async function addStyles() {
         // Check if styles already exist
@@ -702,414 +703,328 @@ export default function supernova(galaxy) {
           return;
         }
 
-        try {
-          console.log("Loading CSS from styles/table.css...");
+        console.log("Loading inline CSS styles...");
 
-          // Try to fetch the CSS file dynamically
-          const response = await fetch("./styles/table.css");
+        // Use inline styles instead of fetching external file
+        const style = document.createElement("style");
+        style.id = "writeback-table-styles";
+        style.textContent = `
+    /* Comprehensive styles for writeback table */
+    .writeback-table-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      border: 1px solid #ddd;
+      font-family: Arial, sans-serif;
+      background: white;
+    }
+    
+    .table-scroll-wrapper {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      min-height: 200px;
+      max-height: calc(100% - 60px);
+    }
+    
+    .writeback-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    
+    .writeback-table th {
+      background-color: #f8f9fa;
+      padding: 12px 8px;
+      text-align: left;
+      border-bottom: 2px solid #dee2e6;
+      border-right: 1px solid #dee2e6;
+      font-weight: 600;
+      color: #495057;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    
+    .writeback-table td {
+      padding: 8px;
+      border-bottom: 1px solid #dee2e6;
+      border-right: 1px solid #dee2e6;
+      vertical-align: middle;
+    }
+    
+    .writeback-table td:first-child,
+    .writeback-table th:first-child {
+       border-left: 1px solid #dee2e6;
+    }
+    
+    .writeback-table tr:nth-child(even) {
+      background-color: #f8f9fa;
+    }
+    
+    .writeback-table tr:hover {
+      background-color: #e9ecef;
+    }
+    
+    /* Status dropdown styling */
+    .status-select-container {
+      display: flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background-color: #f8f9fa;
+      min-height: 32px;
+    }
+    
+    .status-green {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status-red {
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .status-icon {
+      margin-right: 8px;
+      font-size: 16px;
+    }
+    
+    .status-select {
+      flex: 1;
+      padding: 4px 8px;
+      border: 1px solid #ced4da;
+      border-radius: 3px;
+      background-color: white;
+      font-size: 14px;
+    }
+    
+    .status-select:focus {
+      outline: none;
+      border-color: #80bdff;
+      box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    }
+    
+    /* Comments input styling */
+    .comments-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ced4da;
+      border-radius: 3px;
+      font-size: 14px;
+      min-height: 32px;
+      box-sizing: border-box;
+    }
+    
+    .comments-input:focus {
+      outline: none;
+      border-color: #80bdff;
+      box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    }
+    
+    /* Pagination styling */
+    .pagination-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background-color: #f8f9fa;
+      border-top: 1px solid #dee2e6;
+      min-height: 50px;
+      flex-shrink: 0;
+    }
+    
+    .rows-info {
+      color: #6c757d;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .pagination-button {
+      padding: 8px 16px;
+      background-color: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #495057;
+      transition: all 0.2s ease;
+    }
+    
+    .pagination-button:hover:not(.disabled) {
+      background-color: #e9ecef;
+      border-color: #adb5bd;
+    }
+    
+    .pagination-button.disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      background-color: #f8f9fa;
+    }
+    
+    .page-number-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .page-input {
+      width: 60px;
+      padding: 8px;
+      text-align: center;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    .page-total {
+      color: #6c757d;
+      font-size: 14px;
+    }
+    
+    /* Save button styling */
+    .save-all-button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: background-color 0.2s ease;
+    }
 
-          if (response.ok) {
-            const cssText = await response.text();
+    .save-all-button:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
 
-            // Create and inject the style element
-            const style = document.createElement("style");
-            style.id = "writeback-table-styles";
-            style.textContent = cssText;
-            document.head.appendChild(style);
+    .save-all-button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
 
-            console.log("CSS loaded successfully from styles/table.css");
-          } else {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-        } catch (error) {
-          console.warn(
-            "Could not load CSS file, using fallback styles:",
-            error
-          );
+    .save-all-button.saving {
+      background-color: #fd7e14;
+      cursor: wait;
+    }
 
-          // Fallback to comprehensive inline styles
-          const style = document.createElement("style");
-          style.id = "writeback-table-styles";
-          style.textContent = `
-      /* Comprehensive fallback styles for writeback table */
-      .writeback-table-container {
-        position: relative;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        box-sizing: border-box;
-        border: 1px solid #ddd;
-        font-family: Arial, sans-serif;
-      }
-      
-      .table-scroll-wrapper {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: auto;
-        min-height: 100px;
-        max-height: calc(100% - 50px);
-      }
-      
-      .writeback-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      
-      .writeback-table th {
-        background-color: #f2f2f2;
-        padding: 10px 8px;
-        text-align: left;
-        border-bottom: 2px solid #ddd;
-        border-right: 1px solid #ddd;
-        cursor: default;
-        position: relative;
-        font-weight: bold;
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-      
-      .writeback-table td:first-child,
-      .writeback-table th:first-child {
-         border-left: 1px solid #ddd;
-      }
-      
-      .writeback-table th.sortable {
-        cursor: pointer;
-        padding-right: 32px;
-      }
-      
-      .sort-icon-container {
-        position: absolute;
-        right: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-      
-      .sort-icon {
-        font-size: 10px;
-        color: #aaa;
-        cursor: pointer;
-        margin: -2px 0;
-      }
-      
-      .sort-icon.active {
-        color: #333;
-      }
-      
-      .sort-icon:hover {
-        color: #666;
-      }
-      
-      .writeback-table td {
-        padding: 8px;
-        border-bottom: 1px solid #ddd;
-        border-right: 1px solid #ddd; 
-        transition: background-color 0.15s ease;
-      }
-      
-      .writeback-table tr.alternate {
-        background-color: #f9f9f9;
-      }
-      
-      .writeback-table td.selectable {
-        cursor: pointer;
-      }
-      
-      .writeback-table td.selectable:hover {
-        background-color: #f5f5f5;
-      }
-      
-      .writeback-table tr.selected-row td {
-        background-color: #e6ffe6 !important;
-        border-bottom: 1px solid #b3ffb3;
-        font-weight: bold;
-        transition: all 0.15s ease;
-      }
-      
-      .writeback-table input {
-        width: 100%;
-        padding: 6px;
-        box-sizing: border-box;
-        border: 1px solid #ddd;
-      }
-      
-      .table-scroll-wrapper::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-      }
-      
-      .table-scroll-wrapper::-webkit-scrollbar-track {
-        background: #f0f0f0;
-        border-radius: 4px;
-      }
-      
-      .table-scroll-wrapper::-webkit-scrollbar-thumb {
-        background-color: #aaa;
-        border-radius: 4px;
-        border: 2px solid #f0f0f0;
-      }
-      
-      .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
-        background-color: #888;
-      }
-      
+    /* Message styling */
+    .save-message {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: #28a745;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 4px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      animation: fadeInOut 3s ease-in-out;
+      max-width: 400px;
+    }
+
+    .save-message.error {
+      background-color: #dc3545;
+    }
+
+    .save-message.warning {
+      background-color: #ffc107;
+      color: #212529;
+    }
+
+    .save-message.info {
+      background-color: #17a2b8;
+    }
+
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(20px); }
+      10% { opacity: 1; transform: translateY(0); }
+      90% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(20px); }
+    }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      visibility: hidden;
+      opacity: 0;
+      transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+    }
+    
+    .loading-overlay.active {
+      visibility: visible;
+      opacity: 1;
+      transition-delay: 0s;
+    }
+    
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #007bff;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    
+    .loading-text {
+      margin-top: 12px;
+      font-weight: 600;
+      color: #495057;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Icons */
+    .thumbs-up-icon {
+      color: #28a745;
+    }
+
+    .thumbs-down-icon {
+      color: #dc3545;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
       .pagination-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px;
-        background-color: #f8f8f8;
-        border-top: 1px solid #ddd;
-        min-height: 40px;
-        flex-shrink: 0;
-      }
-      
-      .rows-info {
-        color: #666;
-        font-size: 14px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
       }
       
       .pagination-controls {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      
-      .pagination-button {
-        padding: 6px 12px;
-        background-color: #fff;
-        border: 1px solid #ddd;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 14px;
-        transition: all 0.2s ease;
-      }
-      
-      .pagination-button:hover:not(.disabled) {
-        background-color: #f0f0f0;
-        border-color: #ccc;
-      }
-      
-      .pagination-button.disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      
-      .page-number-container {
-        display: flex;
-        align-items: center;
-      }
-      
-      .page-input {
-        width: 50px;
-        padding: 6px;
-        text-align: center;
-        border: 1px solid #ddd;
-        border-radius: 3px;
-      }
-      
-      .page-total {
-        color: #666;
-      }
-      
-      .loading-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: rgba(255, 255, 255, 0.7);
-        display: flex;
-        flex-direction: column;
         justify-content: center;
-        align-items: center;
-        z-index: 100;
-        visibility: hidden;
-        opacity: 0;
-        transition: opacity 0.3s ease, visibility 0s linear 0.3s;
       }
-      
-      .loading-overlay.active {
-        visibility: visible;
-        opacity: 1;
-        transition-delay: 0s;
-      }
-      
-      .spinner {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3498db;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-      }
-      
-      .loading-text {
-        margin-top: 10px;
-        font-weight: bold;
-        color: #333;
-      }
-      
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
+    }
+  `;
 
-      .save-all-button {
-        padding: 8px 16px;
-        background-color: #4285f4;
-        color: white;
-        border: none;
-        border-radius: 3px;
-        cursor: pointer;
-        font-weight: bold;
-        transition: background-color 0.2s ease;
-      }
-
-      .save-all-button:hover {
-        background-color: #3367d6;
-      }
-
-      .save-all-button:disabled {
-        background-color: #cccccc;
-        cursor: not-allowed;
-      }
-
-      .save-all-button.saving {
-        background-color: orange;
-        cursor: wait;
-      }
-
-      .save-message {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background-color: #4CAF50;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 4px;
-        font-weight: bold;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        z-index: 1000;
-        animation: fadeInOut 3s ease-in-out;
-      }
-
-      .save-message.error {
-        background-color: #f44336;
-      }
-
-      .save-message.warning {
-        background-color: #ff9800;
-      }
-
-      .save-message.info {
-        background-color: #2196F3;
-      }
-
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translateY(20px); }
-        10% { opacity: 1; transform: translateY(0); }
-        90% { opacity: 1; transform: translateY(0); }
-        100% { opacity: 0; transform: translateY(20px); }
-      }
-
-      .status-select-container {
-        display: flex;
-        align-items: center;
-        padding: 4px 8px;
-        border-radius: 4px;
-        background-color: #f7f7f7;
-      }
-
-      .status-green {
-        background-color: #e6ffe6;
-      }
-
-      .status-red {
-        background-color: #ffe6e6;
-      }
-
-      .status-icon {
-        margin-right: 8px;
-        font-size: 16px;
-      }
-
-      .status-select {
-        flex: 1;
-        padding: 4px;
-        border: 1px solid #ddd;
-        border-radius: 3px;
-        background-color: white;
-      }
-
-      .comments-input {
-        width: 100%;
-        padding: 6px;
-        border: 1px solid #ddd;
-        border-radius: 3px;
-      }
-
-      .thumbs-up-icon {
-        color: #4CAF50;
-      }
-
-      .thumbs-down-icon {
-        color: #f44336;
-      }
-
-      .churn-bar-container {
-        position: relative;
-        height: 20px;
-        width: 100%;
-        background-color: #f3f3f3;
-        border-radius: 4px;
-        overflow: hidden;
-      }
-
-      .churn-progress-bar {
-        position: absolute;
-        height: 100%;
-        left: 0;
-        top: 0;
-        border-radius: 4px;
-      }
-
-      .churn-value-text {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        color: #333;
-        font-weight: bold;
-        text-shadow: 0 0 2px white;
-        z-index: 1;
-      }
-
-      .high-risk {
-        background-color: #ff4d4d;
-      }
-
-      .medium-risk {
-        background-color: #ff9900;
-      }
-
-      .low-risk {
-        background-color: #2ecc71;
-      }
-
-      .very-low-risk {
-        background-color: #27ae60;
-      }
-    `;
-          document.head.appendChild(style);
-
-          console.log("Fallback styles applied successfully");
-        }
+        document.head.appendChild(style);
+        console.log("Inline CSS styles applied successfully");
       }
       // Cleanup function
       return () => {
