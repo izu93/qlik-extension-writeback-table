@@ -110,43 +110,41 @@ export class TableRenderer {
     const ascIcon = document.createElement("span");
     ascIcon.className = "sort-icon asc-icon";
     ascIcon.textContent = "▲";
-    ascIcon.title = "Sort ascending";
+    ascIcon.title = `Sort ${header.label} ascending`;
 
     const descIcon = document.createElement("span");
     descIcon.className = "sort-icon desc-icon";
     descIcon.textContent = "▼";
-    descIcon.title = "Sort descending";
+    descIcon.title = `Sort ${header.label} descending`;
 
-    // Add icons if they should be shown
-    if (layout.sortOptions?.showSortIcons !== false) {
-      sortIconContainer.appendChild(ascIcon);
-      sortIconContainer.appendChild(descIcon);
-      th.appendChild(sortIconContainer);
-    }
+    sortIconContainer.appendChild(ascIcon);
+    sortIconContainer.appendChild(descIcon);
+    th.appendChild(sortIconContainer);
 
-    // Highlight active sort direction
-    if (header.meta?.sortDirection) {
-      if (header.meta.sortDirection === "asc") {
-        ascIcon.classList.add("active");
-      } else if (header.meta.sortDirection === "desc") {
-        descIcon.classList.add("active");
-      }
-    }
-
-    // Add click handlers
-    th.addEventListener("click", () => {
-      const defaultDirection = layout.sortOptions?.defaultDirection || "asc";
-      this.onSort(header, defaultDirection);
-    });
-
+    // Add click handlers for individual sort directions
     ascIcon.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
+      console.log(`Ascending sort clicked for ${header.id}`);
       this.onSort(header, "asc");
     });
 
     descIcon.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
+      console.log(`Descending sort clicked for ${header.id}`);
       this.onSort(header, "desc");
+    });
+
+    // Also allow clicking the header itself to toggle sort
+    th.addEventListener("click", (e) => {
+      // Only if clicking the header directly, not the icons
+      if (e.target === th || e.target.textContent === header.label) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Default to ascending on header click
+        this.onSort(header, "asc");
+      }
     });
   }
 

@@ -37,6 +37,7 @@ import {
   CSS_CLASSES,
   MESSAGE_TYPES,
   WRITEBACK_COLUMNS,
+  COLUMN_TYPES,
 } from "./utils/constants.js";
 
 // Import UI components
@@ -166,10 +167,103 @@ export default function supernova(galaxy) {
         }
       };
 
-      const handleSort = (headerInfo, direction) => {
+      const handleSort = async (headerInfo, direction) => {
         console.log(`Sort requested: ${headerInfo.id} - ${direction}`);
-        // Sorting logic would be implemented here
-        // This would use the existing sorting logic from the original code
+
+        // Don't allow sorting on writeback columns
+        if (headerInfo.type === COLUMN_TYPES.WRITEBACK) {
+          console.log("Sorting not available for writeback columns");
+          return;
+        }
+
+        try {
+          setIsLoading(true);
+
+          const dimensions = layout.qHyperCube.qDimensionInfo || [];
+          const measures = layout.qHyperCube.qMeasureInfo || [];
+
+          let sortColumnIndex = -1;
+          let sortType = "";
+
+          // Check if it's a dimension
+          const dimIndex = dimensions.findIndex(
+            (dim) => dim.qFallbackTitle === headerInfo.id
+          );
+          if (dimIndex !== -1) {
+            sortColumnIndex = dimIndex;
+            sortType = "dimension";
+          } else {
+            // Check if it's a measure
+            const measIndex = measures.findIndex(
+              (meas) => meas.qFallbackTitle === headerInfo.id
+            );
+            if (measIndex !== -1) {
+              sortColumnIndex = measIndex;
+              sortType = "measure";
+            }
+          }
+
+          if (sortColumnIndex === -1) {
+            console.log("Column not found for sorting");
+            setIsLoading(false);
+            return;
+          }
+
+          console.log(
+            `Sorting ${sortType} at index ${sortColumnIndex} in direction ${direction}`
+          );
+
+          // Create sort direction for Qlik (1 = ascending, -1 = descending)
+          const sortDirection = direction === "asc" ? 1 : -1;
+
+          let patches = [];
+
+          if (sortType === "dimension") {
+            // Sort dimension
+            patches = [
+              {
+                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByState`,
+                qOp: "replace",
+                qValue: `${sortDirection}`,
+              },
+              {
+                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByAscii`,
+                qOp: "replace",
+                qValue: `${sortDirection}`,
+              },
+            ];
+          } else {
+            // Sort measure
+            patches = [
+              {
+                qPath: `/qHyperCubeDef/qMeasures/${sortColumnIndex}/qSortBy/qSortByNumeric`,
+                qOp: "replace",
+                qValue: `${sortDirection}`,
+              },
+            ];
+          }
+
+          // Apply sort patches to the model
+          await model.applyPatches(patches);
+
+          console.log(
+            `Sort applied successfully for ${headerInfo.id} (${sortType})`
+          );
+
+          // Reset to page 1 after sorting
+          paginationManager.reset();
+
+          // The layout effect will automatically trigger and re-render the table with sorted data
+        } catch (error) {
+          console.error("Error applying sort:", error);
+          messageRenderer.showMessage(
+            `Error sorting by ${headerInfo.label}: ${error.message}`,
+            MESSAGE_TYPES.ERROR,
+            element
+          );
+        } finally {
+          setIsLoading(false);
+        }
       };
 
       // Replace your handlePageChange with this optimized version:
@@ -768,6 +862,54 @@ export default function supernova(galaxy) {
     .writeback-table tr:hover {
       background-color: #e9ecef;
     }
+
+    /* Row hover effects */
+    .writeback-table tbody tr {
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .writeback-table tbody tr:hover {
+      background-color: #e9ecef !important;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    /* Individual cell hover for better precision */
+    .writeback-table tbody td {
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+    }
+
+    .writeback-table tbody td:hover {
+      background-color: #dee2e6;
+    }
+
+    /* Special hover for selectable cells (dimensions) */
+    .writeback-table td.selectable:hover {
+      background-color: #cce5ff !important;
+      border-left: 3px solid #007bff;
+    }
+
+    /* Don't change cursor for input fields */
+    .writeback-table input,
+    .writeback-table select {
+      cursor: text;
+    }
+
+    .writeback-table select {
+      cursor: pointer;
+    }
+
+    /* Enhance selected row appearance */
+    .writeback-table tr.selected-row {
+      background-color: #d4edda !important;
+      border-left: 4px solid #28a745;
+    }
+
+    .writeback-table tr.selected-row:hover {
+      background-color: #c3e6cb !important;
+    }
     
     /* Status dropdown styling */
     .status-select-container {
@@ -1021,6 +1163,70 @@ export default function supernova(galaxy) {
         justify-content: center;
       }
     }
+
+    /* sort css */
+      .sortable {
+      cursor: pointer;
+      position: relative;
+      padding-right: 40px !important;
+      user-select: none; /* Prevent text selection when clicking */
+      }
+
+      .sortable:hover {
+        background-color: #e9ecef;
+      }
+
+      .sort-icon-container {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .sort-icon {
+        font-size: 11px;
+        color: #6c757d;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        line-height: 1;
+        padding: 2px;
+        border-radius: 2px;
+        font-weight: bold;
+      }
+
+      .sort-icon:hover {
+        color: #007bff;
+        background-color: rgba(0, 123, 255, 0.1);
+        transform: scale(1.1);
+      }
+
+      .sort-icon.active {
+        color: #007bff;
+        background-color: rgba(0, 123, 255, 0.2);
+        box-shadow: 0 0 0 1px #007bff;
+      }
+
+      .sort-icon.asc-icon:hover {
+        color: #28a745; /* Green for ascending */
+      }
+
+      .sort-icon.desc-icon:hover {
+        color: #dc3545; /* Red for descending */
+      }
+
+      /* Add some visual feedback for the header itself */
+      .sortable:hover .sort-icon-container {
+        opacity: 1;
+      }
+
+      .sort-icon-container {
+        opacity: 0.7;
+        transition: opacity 0.2s ease;
+      }
   `;
 
         document.head.appendChild(style);
