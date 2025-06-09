@@ -411,12 +411,14 @@ export default function supernova(galaxy) {
         console.log("=== Table data updated with merge complete ===");
       }
 
+      // Add this to prevent rapid clicking
+      let saveInProgress = false;
       const handleSaveChanges = async () => {
         if (isSaving || !hasUnsavedChanges) {
           console.log("Save ignored - either already saving or no changes");
           return;
         }
-
+        saveInProgress = true;
         console.log("Save button clicked, starting save process");
         setIsSaving(true);
         messageRenderer.showMessage(
@@ -501,6 +503,7 @@ export default function supernova(galaxy) {
             element
           );
         } finally {
+          saveInProgress = false;
           setIsSaving(false);
         }
       };

@@ -184,12 +184,15 @@ export class PaginationRenderer {
       (e) => {
         e.preventDefault();
         e.stopPropagation();
-
+        console.log("BUTTON DEBUG: Click event fired");
+        console.log("BUTTON DEBUG: Button disabled:", saveButton.disabled);
         if (!isSaving && hasUnsavedChanges) {
-          console.log("Save button clicked, triggering save");
+          console.log("BUTTON DEBUG: Calling onSave");
+          //console.log("Save button clicked, triggering save");
           onSave();
         } else {
-          console.log("Save ignored - either already saving or no changes");
+           console.log("BUTTON DEBUG: Blocked - isSaving:", isSaving, "hasUnsavedChanges:", hasUnsavedChanges);
+          //console.log("Save ignored - either already saving or no changes");
         }
       },
       { once: false }
