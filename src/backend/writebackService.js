@@ -153,6 +153,7 @@ function extractAccountId(row, rowIndex, currentPage) {
  * @param {Object} params - Parameters for SQL generation
  * @returns {string} SQL statement
  */
+//new  generateVersionHistorySQL function:
 function generateVersionHistorySQL({
   appId,
   accountId,
@@ -161,7 +162,7 @@ function generateVersionHistorySQL({
   username,
   currentPage,
 }) {
-  // Extract data from row
+  // Extract data from row (existing code stays the same)
   const baseFee = parseFloat(rowData.BaseFee?.value) || 0;
   const planType = (rowData.PlanType?.value || "").replace(/'/g, "''");
   const promotion = (rowData.Promotion?.value || "").replace(/'/g, "''");
@@ -171,7 +172,7 @@ function generateVersionHistorySQL({
     parseFloat(rowData["Probability of Churn"]?.value?.replace("%", "")) || 0;
   const shapValue = parseFloat(rowData["SHAP Value"]?.value) || 0;
 
-  // Get edited values
+  // Get edited values (existing code stays the same)
   const statusKey = `${accountId}-status`;
   const commentsKey = `${accountId}-comments`;
   const modelFeedback = (
@@ -187,7 +188,17 @@ function generateVersionHistorySQL({
 
   const escapedUsername = (username || "system_user").replace(/'/g, "''");
 
-  // Version history approach: Always INSERT, determine version based on existing records
+  // NEW: Add session tracking
+  const sessionId =
+    window.sessionStorage.getItem("qlik_session_id") ||
+    `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Store session ID for this session
+  if (!window.sessionStorage.getItem("qlik_session_id")) {
+    window.sessionStorage.setItem("qlik_session_id", sessionId);
+  }
+
+  // UPDATED SQL with new tracking fields
   const sql = `
     WITH version_info AS (
       SELECT 
@@ -205,7 +216,8 @@ function generateVersionHistorySQL({
     INSERT INTO writeback_data (
       app_id, account_id, base_fee, plan_type, promotion,
       service_tickets, service_rating, probability_of_churn, shap_value,
-      model_feedback, comments, created_by, modified_by, created_at, modified_at, version
+      model_feedback, comments, created_by, modified_by, created_at, modified_at, version,
+      session_id, edit_started_at, edit_duration_seconds
     )
     SELECT 
       '${appId}',
@@ -223,12 +235,14 @@ function generateVersionHistorySQL({
       '${escapedUsername}',
       CASE WHEN next_version = 1 THEN CURRENT_TIMESTAMP ELSE original_created_at END,
       CURRENT_TIMESTAMP,
-      next_version
+      next_version,
+      '${sessionId}',
+      CURRENT_TIMESTAMP - INTERVAL '30 seconds',
+      30
     FROM version_info;`;
 
   return sql;
 }
-
 /**
  * Execute SQL statements against the database
  * @param {Array} sqlStatements - Array of SQL statements

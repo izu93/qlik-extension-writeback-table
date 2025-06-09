@@ -44,7 +44,7 @@ import {
 import { TableRenderer } from "./ui/tableRenderer.js";
 import { PaginationRenderer } from "./ui/paginationRenderer.js";
 import { MessageRenderer } from "./ui/messageRenderer.js";
-
+import { NotificationManager } from "./ui/notificationManager.js";
 /**
  * Main extension entry point - the supernova function
  */
@@ -90,6 +90,9 @@ export default function supernova(galaxy) {
       const handleCellEdit = (accountId, fieldId, value) => {
         console.log(`Cell edited: ${accountId} - ${fieldId} = ${value}`);
 
+        // NEW: Track edit start
+        notificationManager.trackEditStart(accountId, fieldId);
+
         const dataKey = generateDataKey(accountId, fieldId);
         setEditedData((prev) => ({
           ...prev,
@@ -98,11 +101,12 @@ export default function supernova(galaxy) {
 
         setHasUnsavedChanges(true);
 
-        // Save to localStorage
+        // Save to localStorage (existing code, but add user info)
         try {
           const dataToSave = {
             changes: { ...editedData, [dataKey]: value },
             timestamp: new Date().toISOString(),
+            user: notificationManager.currentUser, // NEW
           };
           localStorage.setItem(
             ENV.STORAGE_KEYS.EDITED_DATA,
@@ -431,6 +435,11 @@ export default function supernova(galaxy) {
           });
 
           if (result.success) {
+            // NEW: Show success with user info
+            notificationManager.showSaveSuccess(
+              result.successCount,
+              result.totalCount
+            );
             // 1. Clear local state first
             setEditedData({});
             setHasUnsavedChanges(false);
@@ -518,6 +527,10 @@ export default function supernova(galaxy) {
       );
 
       const [messageRenderer] = useState(() => new MessageRenderer());
+
+      const [notificationManager] = useState(
+        () => new NotificationManager(messageRenderer)
+      );
 
       // Load saved data from localStorage on mount
       useEffect(() => {
@@ -671,14 +684,33 @@ export default function supernova(galaxy) {
 
       // Auto-refresh effect for writeback data
       useEffect(() => {
-        if (!tableData?.rows?.length) return;
+        console.log("🔍 Auto-refresh useEffect triggered");
+        console.log("🔍 Table data exists:", !!tableData?.rows?.length);
+        console.log("🔍 ENV.AUTO_REFRESH_INTERVAL:", ENV.AUTO_REFRESH_INTERVAL);
+
+        if (!tableData?.rows?.length) {
+          console.log("Auto-refresh: No table data, skipping setup");
+          return;
+        }
+
+        console.log(
+          "Auto-refresh: Setting up timer for",
+          ENV.AUTO_REFRESH_INTERVAL,
+          "ms"
+        );
 
         const timer = setInterval(async () => {
-          console.log("Auto-refresh: Fetching latest writeback data...");
+          console.log("Auto-refresh: Timer triggered, fetching latest data...");
           const appId = getConsistentAppId(model);
 
           try {
             const latestWritebacks = await fetchLatestWritebacks(appId);
+            console.log(
+              "Auto-refresh: Received",
+              latestWritebacks?.length || 0,
+              "records"
+            );
+
             if (latestWritebacks?.length > 0) {
               setTableData((prevData) => {
                 if (!prevData?.rows) return prevData;
@@ -687,9 +719,9 @@ export default function supernova(galaxy) {
                   latestWritebacks
                 );
                 console.log(
-                  "Auto-refresh: Merged",
-                  latestWritebacks.length,
-                  "writeback records"
+                  "Auto-refresh: Updated table with",
+                  mergedRows.length,
+                  "rows"
                 );
                 return { ...prevData, rows: mergedRows };
               });
@@ -699,8 +731,11 @@ export default function supernova(galaxy) {
           }
         }, ENV.AUTO_REFRESH_INTERVAL);
 
-        return () => clearInterval(timer);
-      }, [model?.id]);
+        return () => {
+          console.log("Auto-refresh: Cleaning up timer");
+          clearInterval(timer);
+        };
+      }, [tableData?.rows?.length, model?.id]); //  Now waits for table data
 
       // Main render effect
       useEffect(() => {
@@ -713,7 +748,20 @@ export default function supernova(galaxy) {
         hasUnsavedChanges,
         isSaving,
       ]);
+      // notification manager effect
+      useEffect(() => {
+        async function initializeNotifications() {
+          const username = await getOrPromptUsername(galaxy);
+          notificationManager.initialize(username);
+          notificationManager.startMonitoring();
+        }
 
+        initializeNotifications();
+
+        return () => {
+          notificationManager.destroy();
+        };
+      }, []);
       // Main render function
       async function renderTable() {
         try {
