@@ -1,6 +1,7 @@
 // backend/dataService.js
 /**
  * Service for reading data from the backend database
+ * UPDATED: Customer name based system
  */
 
 import ENV from "../config/env.js";
@@ -77,10 +78,10 @@ export async function fetchLatestWritebacks(appId) {
       const firstRow = writebackRows[0];
       console.log("First row structure:", firstRow);
 
-      // Check if the first row has the expected account_id field
-      if (!firstRow.account_id && !firstRow.accountId && !firstRow.AccountID) {
+      // UPDATED: Check if the first row has the expected customer_name field
+      if (!firstRow.customer_name) {
         console.warn(
-          "Warning: First row doesn't have account_id field. Available fields:",
+          "Warning: First row doesn't have customer_name field. Available fields:",
           Object.keys(firstRow)
         );
       }
@@ -94,34 +95,32 @@ export async function fetchLatestWritebacks(appId) {
 }
 
 /**
- * Fetch specific writeback record by account ID and version
+ * Fetch specific writeback record by customer name and version
  * @param {string} appId - Application identifier
- * @param {string} accountId - Account identifier
+ * @param {string} customerName - Customer name identifier
  * @param {number} version - Record version (optional, defaults to latest)
  * @returns {Promise<Object|null>} Writeback record or null if not found
  */
-export async function fetchWritebackByAccount(
+export async function fetchWritebackByCustomer(
   appId,
-  accountId,
+  customerName,
   version = null
 ) {
   try {
     const allWritebacks = await fetchLatestWritebacks(appId);
 
-    // Filter by account ID
-    const accountRecords = allWritebacks.filter((record) => {
-      const recordAccountId =
-        record.account_id || record.accountId || record.AccountID;
-      return String(recordAccountId) === String(accountId);
+    // Filter by customer name
+    const customerRecords = allWritebacks.filter((record) => {
+      return String(record.customer_name) === String(customerName);
     });
 
-    if (accountRecords.length === 0) {
+    if (customerRecords.length === 0) {
       return null;
     }
 
     // If no version specified, return the latest
     if (version === null) {
-      return accountRecords.reduce((latest, current) => {
+      return customerRecords.reduce((latest, current) => {
         const latestVersion = latest.version || 0;
         const currentVersion = current.version || 0;
         return currentVersion > latestVersion ? current : latest;
@@ -129,33 +128,31 @@ export async function fetchWritebackByAccount(
     }
 
     // Find specific version
-    return accountRecords.find((record) => record.version === version) || null;
+    return customerRecords.find((record) => record.version === version) || null;
   } catch (error) {
-    console.error("Error fetching writeback by account:", error);
+    console.error("Error fetching writeback by customer:", error);
     return null;
   }
 }
 
 /**
- * Get version history for a specific account
+ * Get version history for a specific customer
  * @param {string} appId - Application identifier
- * @param {string} accountId - Account identifier
+ * @param {string} customerName - Customer name identifier
  * @returns {Promise<Array>} Array of version records sorted by version descending
  */
-export async function getVersionHistory(appId, accountId) {
+export async function getVersionHistory(appId, customerName) {
   try {
     const allWritebacks = await fetchLatestWritebacks(appId);
 
-    // Filter by account ID and sort by version descending
-    const accountRecords = allWritebacks
+    // Filter by customer name and sort by version descending
+    const customerRecords = allWritebacks
       .filter((record) => {
-        const recordAccountId =
-          record.account_id || record.accountId || record.AccountID;
-        return String(recordAccountId) === String(accountId);
+        return String(record.customer_name) === String(customerName);
       })
       .sort((a, b) => (b.version || 0) - (a.version || 0));
 
-    return accountRecords;
+    return customerRecords;
   } catch (error) {
     console.error("Error fetching version history:", error);
     return [];
@@ -163,17 +160,130 @@ export async function getVersionHistory(appId, accountId) {
 }
 
 /**
- * Check if account has any writeback data
+ * Check if customer has any writeback data
  * @param {string} appId - Application identifier
- * @param {string} accountId - Account identifier
- * @returns {Promise<boolean>} True if account has writeback data
+ * @param {string} customerName - Customer name identifier
+ * @returns {Promise<boolean>} True if customer has writeback data
  */
-export async function hasWritebackData(appId, accountId) {
+export async function hasWritebackData(appId, customerName) {
   try {
-    const record = await fetchWritebackByAccount(appId, accountId);
+    const record = await fetchWritebackByCustomer(appId, customerName);
     return record !== null;
   } catch (error) {
     console.error("Error checking writeback data existence:", error);
     return false;
   }
+}
+
+/**
+ * Get all customers with writeback data
+ * @param {string} appId - Application identifier
+ * @returns {Promise<Array>} Array of customer names that have writeback data
+ */
+export async function getCustomersWithWritebackData(appId) {
+  try {
+    const allWritebacks = await fetchLatestWritebacks(appId);
+
+    // Get unique customer names
+    const customerNames = new Set();
+    allWritebacks.forEach((record) => {
+      if (record.customer_name) {
+        customerNames.add(record.customer_name);
+      }
+    });
+
+    return Array.from(customerNames);
+  } catch (error) {
+    console.error("Error fetching customers with writeback data:", error);
+    return [];
+  }
+}
+
+/**
+ * Get writeback statistics for an app
+ * @param {string} appId - Application identifier
+ * @returns {Promise<Object>} Statistics object
+ */
+export async function getWritebackStatistics(appId) {
+  try {
+    const allWritebacks = await fetchLatestWritebacks(appId);
+
+    const stats = {
+      totalRecords: allWritebacks.length,
+      uniqueCustomers: new Set(allWritebacks.map((r) => r.customer_name)).size,
+      recordsWithFeedback: allWritebacks.filter(
+        (r) => r.model_feedback && r.model_feedback !== ""
+      ).length,
+      recordsWithComments: allWritebacks.filter(
+        (r) => r.comments && r.comments !== ""
+      ).length,
+      latestUpdate:
+        allWritebacks.length > 0
+          ? Math.max(
+              ...allWritebacks.map((r) =>
+                new Date(r.modified_at || r.created_at).getTime()
+              )
+            )
+          : null,
+    };
+
+    if (stats.latestUpdate) {
+      stats.latestUpdate = new Date(stats.latestUpdate).toISOString();
+    }
+
+    return stats;
+  } catch (error) {
+    console.error("Error fetching writeback statistics:", error);
+    return {
+      totalRecords: 0,
+      uniqueCustomers: 0,
+      recordsWithFeedback: 0,
+      recordsWithComments: 0,
+      latestUpdate: null,
+    };
+  }
+}
+
+/**
+ * Validate writeback record structure
+ * @param {Object} record - Writeback record to validate
+ * @returns {Object} Validation result with isValid flag and errors array
+ */
+export function validateWritebackRecord(record) {
+  const errors = [];
+
+  if (!record || typeof record !== "object") {
+    errors.push("Invalid record object");
+    return { isValid: false, errors };
+  }
+
+  // Check required fields
+  if (!record.customer_name) {
+    errors.push("Missing customer_name field");
+  }
+
+  if (!record.app_id) {
+    errors.push("Missing app_id field");
+  }
+
+  // Check data types
+  if (record.version !== undefined && typeof record.version !== "number") {
+    errors.push("Version must be a number");
+  }
+
+  if (record.amount !== undefined && typeof record.amount !== "number") {
+    errors.push("Amount must be a number");
+  }
+
+  if (
+    record.risk_score !== undefined &&
+    typeof record.risk_score !== "number"
+  ) {
+    errors.push("Risk score must be a number");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
 }

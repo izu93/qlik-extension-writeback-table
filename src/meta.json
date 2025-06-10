@@ -1,8 +1,17 @@
 {
   "name": "qlik-extension-writeback-table",
-  "description": "Writeback table extension for Qlik Cloud",
+  "displayName": "Qlik Writeback Extension",
+  "description": "Advanced writeback table extension for Qlik Sense that enables users to provide feedback and comments on data with real-time collaboration features, visual risk indicators, and comprehensive audit trails.",
   "author": "Karthik Burra",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "icon": "table",
-  "preview": ""
+  "preview": "",
+  "type": "visualization",
+  "keywords": ["writeback", "collaboration", "feedback", "table", "risk-analysis", "data-validation"],
+  "license": "MIT",
+  "qlikVersion": ">=12.0.0",
+  "bundle": {
+    "id": "qlik-extension-writeback-table",
+    "name": "Qlik Writeback Extension by Karthik Burra"
+  }
 }

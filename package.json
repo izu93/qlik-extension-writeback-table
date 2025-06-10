@@ -1,12 +1,9 @@
 {
   "name": "qlik-extension-writeback-table",
   "version": "0.1.0",
-  "description": "",
+  "description": "Advanced writeback table extension for Qlik Sense that enables users to provide feedback and comments on data with real-time collaboration features and visual risk indicators",
   "license": "MIT",
-  "author": {
-    "name": "Karthik Burra",
-    "email": "karthik.burra@qlik.com"
-  },
+  "author": "Karthik Burra",
   "keywords": [
     "qlik",
     "nebula",

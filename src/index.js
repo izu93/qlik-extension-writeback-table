@@ -2,6 +2,7 @@
 /**
  * Modular Qlik Writeback Table Extension
  * Main coordinator that imports and orchestrates all modules
+ * UPDATED: Uses customer_name instead of account_id
  */
 
 // Import Qlik hooks
@@ -20,7 +21,6 @@ import ENV from "./config/env.js";
 import properties from "./object-properties";
 import data from "./data";
 import ext from "./ext";
-//import tableStyles from "./styles/table.css?inline";
 
 // Import core modules
 import { processData, generateDataKey } from "./core/dataProcessor.js";
@@ -45,6 +45,7 @@ import { TableRenderer } from "./ui/tableRenderer.js";
 import { PaginationRenderer } from "./ui/paginationRenderer.js";
 import { MessageRenderer } from "./ui/messageRenderer.js";
 import { NotificationManager } from "./ui/notificationManager.js";
+
 /**
  * Main extension entry point - the supernova function
  */
@@ -87,13 +88,13 @@ export default function supernova(galaxy) {
       const [isPageNavigation, setIsPageNavigation] = useState(false);
 
       // DEFINE EVENT HANDLERS FIRST - Before they're used in useState
-      const handleCellEdit = (accountId, fieldId, value) => {
-        console.log(`Cell edited: ${accountId} - ${fieldId} = ${value}`);
+      const handleCellEdit = (customerName, fieldId, value) => {
+        console.log(`Cell edited: ${customerName} - ${fieldId} = ${value}`);
 
         // NEW: Track edit start
-        notificationManager.trackEditStart(accountId, fieldId);
+        notificationManager.trackEditStart(customerName, fieldId);
 
-        const dataKey = generateDataKey(accountId, fieldId);
+        const dataKey = generateDataKey(customerName, fieldId);
         setEditedData((prev) => ({
           ...prev,
           [dataKey]: value,
@@ -174,9 +175,9 @@ export default function supernova(galaxy) {
       const handleSort = async (headerInfo, direction) => {
         console.log(`Sort requested: ${headerInfo.id} - ${direction}`);
 
-        // Don't allow sorting on writeback columns
-        if (headerInfo.type === COLUMN_TYPES.WRITEBACK) {
-          console.log("Sorting not available for writeback columns");
+        // ONLY allow sorting on Amount column
+        if (headerInfo.id !== "Amount" && headerInfo.label !== "Amount") {
+          console.log("Sorting only available for Amount column");
           return;
         }
 
@@ -189,32 +190,40 @@ export default function supernova(galaxy) {
           let sortColumnIndex = -1;
           let sortType = "";
 
-          // Check if it's a dimension
-          const dimIndex = dimensions.findIndex(
-            (dim) => dim.qFallbackTitle === headerInfo.id
+          // Check if Amount is a measure
+          const measIndex = measures.findIndex(
+            (meas) => meas.qFallbackTitle === "Amount"
           );
-          if (dimIndex !== -1) {
-            sortColumnIndex = dimIndex;
-            sortType = "dimension";
+          if (measIndex !== -1) {
+            sortColumnIndex = measIndex;
+            sortType = "measure";
           } else {
-            // Check if it's a measure
-            const measIndex = measures.findIndex(
-              (meas) => meas.qFallbackTitle === headerInfo.id
+            // Check if Amount is a dimension (unlikely but just in case)
+            const dimIndex = dimensions.findIndex(
+              (dim) => dim.qFallbackTitle === "Amount"
             );
-            if (measIndex !== -1) {
-              sortColumnIndex = measIndex;
-              sortType = "measure";
+            if (dimIndex !== -1) {
+              sortColumnIndex = dimIndex;
+              sortType = "dimension";
             }
           }
 
           if (sortColumnIndex === -1) {
-            console.log("Column not found for sorting");
+            console.log("Amount column not found for sorting");
+            console.log(
+              "Available measures:",
+              measures.map((m) => m.qFallbackTitle)
+            );
+            console.log(
+              "Available dimensions:",
+              dimensions.map((d) => d.qFallbackTitle)
+            );
             setIsLoading(false);
             return;
           }
 
           console.log(
-            `Sorting ${sortType} at index ${sortColumnIndex} in direction ${direction}`
+            `Sorting Amount (${sortType}) at index ${sortColumnIndex} in direction ${direction}`
           );
 
           // Create sort direction for Qlik (1 = ascending, -1 = descending)
@@ -222,22 +231,8 @@ export default function supernova(galaxy) {
 
           let patches = [];
 
-          if (sortType === "dimension") {
-            // Sort dimension
-            patches = [
-              {
-                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByState`,
-                qOp: "replace",
-                qValue: `${sortDirection}`,
-              },
-              {
-                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByAscii`,
-                qOp: "replace",
-                qValue: `${sortDirection}`,
-              },
-            ];
-          } else {
-            // Sort measure
+          if (sortType === "measure") {
+            // Sort Amount measure numerically
             patches = [
               {
                 qPath: `/qHyperCubeDef/qMeasures/${sortColumnIndex}/qSortBy/qSortByNumeric`,
@@ -245,23 +240,34 @@ export default function supernova(galaxy) {
                 qValue: `${sortDirection}`,
               },
             ];
+          } else {
+            // Sort Amount dimension numerically (if it's a dimension)
+            patches = [
+              {
+                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByNumeric`,
+                qOp: "replace",
+                qValue: `${sortDirection}`,
+              },
+            ];
           }
 
-          // Apply sort patches to the model
+          console.log("Applying Amount sort patches:", patches);
+
+          // Apply sort patches to the model - this sorts the ENTIRE dataset
           await model.applyPatches(patches);
 
           console.log(
-            `Sort applied successfully for ${headerInfo.id} (${sortType})`
+            `Amount sort applied successfully in ${direction} direction`
           );
 
-          // Reset to page 1 after sorting
+          // Reset to page 1 after sorting to see the sorted results
           paginationManager.reset();
 
-          // The layout effect will automatically trigger and re-render the table with sorted data
+          // The layout effect will automatically trigger and re-render with the entire sorted dataset
         } catch (error) {
-          console.error("Error applying sort:", error);
+          console.error("Error sorting Amount:", error);
           messageRenderer.showMessage(
-            `Error sorting by ${headerInfo.label}: ${error.message}`,
+            `Error sorting by Amount: ${error.message}`,
             MESSAGE_TYPES.ERROR,
             element
           );
@@ -330,86 +336,6 @@ export default function supernova(galaxy) {
           setIsPageNavigation(false);
         }
       };
-      // Updated processLayoutData function inside the main layout effect
-      async function processLayoutData() {
-        console.log("=== Starting layout data processing ===");
-
-        let qlikFormattedData;
-        const currentPage = paginationManager.currentPage;
-
-        // Get Qlik data
-        if (shouldReset || currentPage === 1) {
-          qlikFormattedData = processData({ layout });
-        } else {
-          try {
-            const pageData = await paginationManager.fetchPageData(currentPage);
-            if (pageData && pageData.length > 0) {
-              qlikFormattedData = processData({ layout, pageData });
-            } else {
-              qlikFormattedData = processData({ layout });
-              paginationManager.reset();
-            }
-          } catch (error) {
-            console.error("Error fetching page data:", error);
-            qlikFormattedData = processData({ layout });
-            paginationManager.reset();
-          }
-        }
-
-        // ALWAYS fetch and merge writeback data (not just on save)
-        await mergeWritebackDataFromDB(qlikFormattedData);
-      }
-
-      // Updated mergeWritebackDataFromDB function
-      async function mergeWritebackDataFromDB(qlikData) {
-        console.log("=== Starting DB data fetch and merge ===");
-        const appId = getConsistentAppId(model);
-        console.log("Using app_id for fetch:", appId);
-
-        let mergedRows = qlikData.rows;
-
-        try {
-          const latestWritebacks = await fetchLatestWritebacks(appId);
-          console.log("Raw fetched writeback data:", latestWritebacks);
-
-          if (latestWritebacks && latestWritebacks.length > 0) {
-            console.log(
-              "Processing",
-              latestWritebacks.length,
-              "writeback records"
-            );
-            mergedRows = mergeWritebackData(qlikData.rows, latestWritebacks);
-            console.log(
-              "Successfully merged writeback data into",
-              mergedRows.length,
-              "table rows"
-            );
-
-            // DEBUG: Log sample merged data
-            const sampleMerged = mergedRows.find(
-              (row) =>
-                (row.status?.value && row.status.value !== "") ||
-                (row.comments?.value && row.comments.value !== "")
-            );
-            if (sampleMerged) {
-              console.log("Sample merged row with writeback data:", {
-                accountId: sampleMerged.AccountID?.value,
-                status: sampleMerged.status?.value,
-                comments: sampleMerged.comments?.value,
-              });
-            }
-          } else {
-            console.log("No writeback data found - using original Qlik data");
-          }
-        } catch (err) {
-          console.error("Error fetching/merging DB writeback data:", err);
-          console.log("Falling back to original Qlik data without merge");
-        }
-
-        // Set the final table data
-        setTableData({ ...qlikData, rows: mergedRows });
-        console.log("=== Table data updated with merge complete ===");
-      }
 
       // Add this to prevent rapid clicking
       let saveInProgress = false;
@@ -518,7 +444,7 @@ export default function supernova(galaxy) {
           new TableRenderer({
             onCellEdit: handleCellEdit,
             onRowSelect: handleRowSelect,
-            onSort: handleSort,
+            onSort: handleSort, // Re-enabled sorting
           })
       );
 
@@ -679,10 +605,10 @@ export default function supernova(galaxy) {
 
         setWasInSelectionMode(isInSelectionMode);
 
-        // Reset selected row when leaving selection mode
-        if (!selections.isActive() && selectedRow !== null) {
-          setSelectedRow(null);
-        }
+        // DON'T reset selected row when leaving selection mode - keep it for visual feedback
+        // if (!selections.isActive() && selectedRow !== null) {
+        //   setSelectedRow(null);
+        // }
       }, [layout.qSelectionInfo, wasInSelectionMode, selections.isActive()]);
 
       // Auto-refresh effect for writeback data
@@ -779,11 +705,8 @@ export default function supernova(galaxy) {
             return;
           }
 
-          // Skip rendering in selection mode to avoid visual glitches
-          if (layout.qSelectionInfo?.qInSelections) {
-            console.log("index.js: In selection mode, skipping render");
-            return;
-          }
+          // REMOVED: Skip rendering in selection mode - allow rendering always
+          // This ensures save button stays visible during selections
 
           // Clear and create container
           element.innerHTML = "";
@@ -801,11 +724,13 @@ export default function supernova(galaxy) {
             currentPage: paginationManager.currentPage,
           });
 
-          // Render pagination if enabled
+          // Render pagination if enabled - ALWAYS render if writeback is enabled
           const paginationEnabled = layout.paginationOptions?.enabled !== false;
           const pageInfo = paginationManager.getCurrentPageInfo();
+          const hasWriteback = layout.tableOptions?.allowWriteback;
 
-          if (paginationEnabled && pageInfo.totalPages > 1) {
+          // Show pagination if enabled OR if writeback is enabled (for save button)
+          if ((paginationEnabled && pageInfo.totalPages > 1) || hasWriteback) {
             paginationRenderer.render({
               container,
               pageInfo,
@@ -839,7 +764,6 @@ export default function supernova(galaxy) {
           </div>`;
         }
       }
-      // replace the addStyles() function with this:
 
       async function addStyles() {
         // Check if styles already exist
@@ -1017,6 +941,54 @@ export default function supernova(galaxy) {
       outline: none;
       border-color: #80bdff;
       box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    }
+    
+    /* Risk progress bar styling */
+    .risk-bar-container {
+      position: relative;
+      width: 100%;
+      height: 24px;
+      background-color: #e9ecef;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+    }
+
+    .risk-progress-bar {
+      height: 100%;
+      border-radius: 12px;
+      transition: width 0.3s ease;
+      min-width: 20px; /* Ensure some visibility even for small values */
+    }
+
+    .risk-value-text {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-weight: 600;
+      font-size: 12px;
+      color: #212529;
+      z-index: 2;
+      text-shadow: 0 0 3px rgba(255,255,255,0.8);
+    }
+
+    /* Risk level colors */
+    .risk-very-low {
+      background: linear-gradient(90deg, #28a745, #20c997);
+    }
+
+    .risk-low {
+      background: linear-gradient(90deg, #ffc107, #fd7e14);
+    }
+
+    .risk-medium {
+      background: linear-gradient(90deg, #fd7e14, #dc3545);
+    }
+
+    .risk-high {
+      background: linear-gradient(90deg, #dc3545, #6f42c1);
     }
     
     /* Pagination styling */
@@ -1215,69 +1187,69 @@ export default function supernova(galaxy) {
       }
     }
 
-    /* sort css */
-      .sortable {
+    /* Sort CSS */
+    .sortable {
       cursor: pointer;
       position: relative;
       padding-right: 40px !important;
       user-select: none; /* Prevent text selection when clicking */
-      }
+    }
 
-      .sortable:hover {
-        background-color: #e9ecef;
-      }
+    .sortable:hover {
+      background-color: #e9ecef;
+    }
 
-      .sort-icon-container {
-        position: absolute;
-        right: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2px;
-      }
+    .sort-icon-container {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
 
-      .sort-icon {
-        font-size: 11px;
-        color: #6c757d;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        line-height: 1;
-        padding: 2px;
-        border-radius: 2px;
-        font-weight: bold;
-      }
+    .sort-icon {
+      font-size: 11px;
+      color: #6c757d;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      line-height: 1;
+      padding: 2px;
+      border-radius: 2px;
+      font-weight: bold;
+    }
 
-      .sort-icon:hover {
-        color: #007bff;
-        background-color: rgba(0, 123, 255, 0.1);
-        transform: scale(1.1);
-      }
+    .sort-icon:hover {
+      color: #007bff;
+      background-color: rgba(0, 123, 255, 0.1);
+      transform: scale(1.1);
+    }
 
-      .sort-icon.active {
-        color: #007bff;
-        background-color: rgba(0, 123, 255, 0.2);
-        box-shadow: 0 0 0 1px #007bff;
-      }
+    .sort-icon.active {
+      color: #007bff;
+      background-color: rgba(0, 123, 255, 0.2);
+      box-shadow: 0 0 0 1px #007bff;
+    }
 
-      .sort-icon.asc-icon:hover {
-        color: #28a745; /* Green for ascending */
-      }
+    .sort-icon.asc-icon:hover {
+      color: #28a745; /* Green for ascending */
+    }
 
-      .sort-icon.desc-icon:hover {
-        color: #dc3545; /* Red for descending */
-      }
+    .sort-icon.desc-icon:hover {
+      color: #dc3545; /* Red for descending */
+    }
 
-      /* Add some visual feedback for the header itself */
-      .sortable:hover .sort-icon-container {
-        opacity: 1;
-      }
+    /* Add some visual feedback for the header itself */
+    .sortable:hover .sort-icon-container {
+      opacity: 1;
+    }
 
-      .sort-icon-container {
-        opacity: 0.7;
-        transition: opacity 0.2s ease;
-      }
+    .sort-icon-container {
+      opacity: 0.7;
+      transition: opacity 0.2s ease;
+    }
   `;
 
         document.head.appendChild(style);

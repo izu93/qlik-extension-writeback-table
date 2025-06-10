@@ -1,9 +1,14 @@
 // core/dataProcessor.js
 /**
  * Data processing utilities for Qlik hypercube data
+ * UPDATED: Customer name based system
  */
 
-import { COLUMN_TYPES, WRITEBACK_COLUMNS } from "../utils/constants.js";
+import {
+  COLUMN_TYPES,
+  WRITEBACK_COLUMNS,
+  SPECIAL_COLUMNS,
+} from "../utils/constants.js";
 
 /**
  * Process Qlik hypercube data and transform it for the table
@@ -74,7 +79,7 @@ export function processData({ layout, pageData }) {
     headers.push(
       {
         id: WRITEBACK_COLUMNS.STATUS,
-        label: layout.columnLabels?.status || "Status",
+        label: layout.columnLabels?.status || "Model Feedback",
         type: COLUMN_TYPES.WRITEBACK,
       },
       {
@@ -169,27 +174,110 @@ export function getPageSize(layout) {
 }
 
 /**
- * Extract account ID from a row object
+ * Extract customer name from a row object
  * @param {Object} row - Table row object
  * @param {number} rowIndex - Row index as fallback
  * @param {number} currentPage - Current page number
- * @returns {string} Account ID
+ * @returns {string} Customer name
  */
-export function extractAccountId(row, rowIndex, currentPage) {
+export function extractCustomerName(row, rowIndex, currentPage) {
   return (
-    row.AccountID?.value ||
-    row.accountId?.value ||
-    row.account_id?.value ||
+    row[SPECIAL_COLUMNS.CUSTOMER]?.value ||
     `row-${rowIndex}-page-${currentPage}`
   );
 }
 
 /**
  * Generate a unique data key for writeback fields
- * @param {string} accountId - Account identifier
+ * @param {string} customerName - Customer name identifier
  * @param {string} fieldId - Field identifier (status, comments, etc.)
  * @returns {string} Unique data key
  */
-export function generateDataKey(accountId, fieldId) {
-  return `${accountId}-${fieldId}`;
+export function generateDataKey(customerName, fieldId) {
+  return `${customerName}-${fieldId}`;
+}
+
+/**
+ * Validate customer name for data operations
+ * @param {string} customerName - Customer name to validate
+ * @returns {boolean} True if customer name is valid
+ */
+export function validateCustomerName(customerName) {
+  return (
+    customerName &&
+    typeof customerName === "string" &&
+    customerName.trim().length > 0 &&
+    !customerName.startsWith("row-")
+  ); // Exclude fallback names
+}
+
+/**
+ * Extract field value from row data
+ * @param {Object} row - Table row object
+ * @param {string} fieldName - Field name to extract
+ * @returns {any} Field value or null if not found
+ */
+export function extractFieldValue(row, fieldName) {
+  const field = row[fieldName];
+  if (!field) return null;
+
+  // Return numeric value if available, otherwise text value
+  return field.qNum !== undefined ? field.qNum : field.value;
+}
+
+/**
+ * Get all customer names from table rows
+ * @param {Array} rows - Array of table row objects
+ * @returns {Array} Array of unique customer names
+ */
+export function getUniqueCustomerNames(rows) {
+  const customerNames = new Set();
+
+  rows.forEach((row, index) => {
+    const customerName = extractCustomerName(row, index, 1);
+    if (validateCustomerName(customerName)) {
+      customerNames.add(customerName);
+    }
+  });
+
+  return Array.from(customerNames);
+}
+
+/**
+ * Find row by customer name
+ * @param {Array} rows - Array of table row objects
+ * @param {string} targetCustomerName - Customer name to find
+ * @param {number} currentPage - Current page number
+ * @returns {Object|null} Row object or null if not found
+ */
+export function findRowByCustomerName(
+  rows,
+  targetCustomerName,
+  currentPage = 1
+) {
+  return (
+    rows.find((row, index) => {
+      const customerName = extractCustomerName(row, index, currentPage);
+      return customerName === targetCustomerName;
+    }) || null
+  );
+}
+
+/**
+ * Extract all data fields from a row for database operations
+ * @param {Object} row - Table row object
+ * @returns {Object} Object containing all relevant field values
+ */
+export function extractRowData(row) {
+  return {
+    customerName: row[SPECIAL_COLUMNS.CUSTOMER]?.value || "",
+    amount: parseFloat(row[SPECIAL_COLUMNS.AMOUNT]?.value) || 0,
+    agingBucket: row[SPECIAL_COLUMNS.AGING_BUCKETS]?.value || "",
+    daysPastDue: parseInt(row[SPECIAL_COLUMNS.DAYS_PAST_DUE]?.value) || 0,
+    riskScore:
+      parseFloat(row[SPECIAL_COLUMNS.RISK]?.value?.replace("%", "")) || 0,
+    // Writeback fields
+    modelFeedback: row.status?.value || "",
+    comments: row.comments?.value || "",
+  };
 }

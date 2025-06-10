@@ -1,10 +1,12 @@
 // backend/writebackService.js
 /**
  * Service for writing data back to the database
+ * UPDATED: Field mappings for new data structure
  */
 
 import ENV from "../config/env.js";
 import { getOrPromptUsername, getConsistentAppId } from "../utils/userUtils.js";
+import { SPECIAL_COLUMNS } from "../utils/constants.js";
 
 /**
  * Save all changes to the database with version history
@@ -36,26 +38,26 @@ export async function saveAllChanges({
     const sqlStatements = [];
 
     if (tableData && tableData.rows) {
-      // First, get the accounts that have edits
-      const accountsWithEdits = getAccountsWithEdits(
+      // First, get the customers that have edits
+      const customersWithEdits = getCustomersWithEdits(
         tableData.rows,
         editedData,
         currentPage
       );
 
-      // For each account with edits, generate SQL
-      for (const accountId of accountsWithEdits) {
+      // For each customer with edits, generate SQL
+      for (const customerName of customersWithEdits) {
         try {
-          const rowData = findRowDataByAccountId(
+          const rowData = findRowDataByCustomerName(
             tableData.rows,
-            accountId,
+            customerName,
             currentPage
           );
           if (!rowData) continue;
 
           const sql = generateVersionHistorySQL({
             appId,
-            accountId,
+            customerName,
             rowData,
             editedData,
             username,
@@ -63,9 +65,9 @@ export async function saveAllChanges({
           });
 
           sqlStatements.push(sql);
-          console.log(`Generated version history SQL for ${accountId}`);
+          console.log(`Generated version history SQL for ${customerName}`);
         } catch (error) {
-          console.error(`Error processing account ${accountId}:`, error);
+          console.error(`Error processing customer ${customerName}:`, error);
         }
       }
     }
@@ -97,84 +99,89 @@ export async function saveAllChanges({
 }
 
 /**
- * Get accounts that have edits
+ * Get customers that have edits
  * @param {Array} rows - Table rows
  * @param {Object} editedData - Edited data object
  * @param {number} currentPage - Current page number
- * @returns {Set} Set of account IDs with edits
+ * @returns {Set} Set of customer names with edits
  */
-function getAccountsWithEdits(rows, editedData, currentPage) {
-  const accountsWithEdits = new Set();
+function getCustomersWithEdits(rows, editedData, currentPage) {
+  const customersWithEdits = new Set();
 
   rows.forEach((row, rowIndex) => {
-    const accountId = extractAccountId(row, rowIndex, currentPage);
-    const statusKey = `${accountId}-status`;
-    const commentsKey = `${accountId}-comments`;
+    const customerName = extractCustomerName(row, rowIndex, currentPage);
+    const statusKey = `${customerName}-status`;
+    const commentsKey = `${customerName}-comments`;
 
     const hasEdits =
       editedData[statusKey] !== undefined ||
       editedData[commentsKey] !== undefined;
 
     if (hasEdits) {
-      accountsWithEdits.add(accountId);
+      customersWithEdits.add(customerName);
     }
   });
 
-  return accountsWithEdits;
+  return customersWithEdits;
 }
 
 /**
- * Find row data by account ID
+ * Find row data by customer name
  * @param {Array} rows - Table rows
- * @param {string} accountId - Account ID to find
+ * @param {string} customerName - Customer name to find
  * @param {number} currentPage - Current page number
  * @returns {Object|null} Row data or null if not found
  */
-function findRowDataByAccountId(rows, accountId, currentPage) {
+function findRowDataByCustomerName(rows, customerName, currentPage) {
   return rows.find((row, index) => {
-    const currentAccountId = extractAccountId(row, index, currentPage);
-    return currentAccountId === accountId;
+    const currentCustomerName = extractCustomerName(row, index, currentPage);
+    return currentCustomerName === customerName;
   });
 }
 
 /**
- * Extract account ID from row with fallback
+ * Extract customer name from row with fallback
  * @param {Object} row - Table row
  * @param {number} rowIndex - Row index
  * @param {number} currentPage - Current page
- * @returns {string} Account ID
+ * @returns {string} Customer name
  */
-function extractAccountId(row, rowIndex, currentPage) {
-  return row.AccountID?.value || `row-${rowIndex}-page-${currentPage}`;
+function extractCustomerName(row, rowIndex, currentPage) {
+  return (
+    row[SPECIAL_COLUMNS.CUSTOMER]?.value ||
+    `row-${rowIndex}-page-${currentPage}`
+  );
 }
 
 /**
  * Generate SQL for version history insert
+ * UPDATED: Uses customer_name as unique identifier instead of account_id
  * @param {Object} params - Parameters for SQL generation
  * @returns {string} SQL statement
  */
-//new  generateVersionHistorySQL function:
 function generateVersionHistorySQL({
   appId,
-  accountId,
+  customerName,
   rowData,
   editedData,
   username,
   currentPage,
 }) {
-  // Extract data from row (existing code stays the same)
-  const baseFee = parseFloat(rowData.BaseFee?.value) || 0;
-  const planType = (rowData.PlanType?.value || "").replace(/'/g, "''");
-  const promotion = (rowData.Promotion?.value || "").replace(/'/g, "''");
-  const serviceTickets = parseInt(rowData.ServiceTickets?.value) || 0;
-  const serviceRating = parseFloat(rowData.ServiceRating?.value) || 0;
-  const probabilityOfChurn =
-    parseFloat(rowData["Probability of Churn"]?.value?.replace("%", "")) || 0;
-  const shapValue = parseFloat(rowData["SHAP Value"]?.value) || 0;
+  // UPDATED: Extract data from row with new field mappings
+  const amount = parseFloat(rowData.Amount?.value) || 0;
+  const agingBucket = (rowData["Aging buckets"]?.value || "").replace(
+    /'/g,
+    "''"
+  );
+  const daysPastDue = parseInt(rowData["Days Past Due"]?.value) || 0;
+  const riskScore = parseFloat(rowData.Risk?.value?.replace("%", "")) || 0;
 
-  // Get edited values (existing code stays the same)
-  const statusKey = `${accountId}-status`;
-  const commentsKey = `${accountId}-comments`;
+  // LEGACY: Keep for backward compatibility
+  const probabilityOfChurn = 0; // No longer used
+
+  // Get edited values - use customerName as the key
+  const statusKey = `${customerName}-status`;
+  const commentsKey = `${customerName}-comments`;
   const modelFeedback = (
     editedData[statusKey] ||
     rowData.status?.value ||
@@ -187,18 +194,18 @@ function generateVersionHistorySQL({
   ).replace(/'/g, "''");
 
   const escapedUsername = (username || "system_user").replace(/'/g, "''");
+  const escapedCustomerName = customerName.replace(/'/g, "''");
 
-  // NEW: Add session tracking
+  // Session tracking (existing code)
   const sessionId =
     window.sessionStorage.getItem("qlik_session_id") ||
     `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  // Store session ID for this session
   if (!window.sessionStorage.getItem("qlik_session_id")) {
     window.sessionStorage.setItem("qlik_session_id", sessionId);
   }
 
-  // UPDATED SQL with new tracking fields
+  // UPDATED SQL - removed account_id, using customer_name as unique identifier
   const sql = `
     WITH version_info AS (
       SELECT 
@@ -206,29 +213,27 @@ function generateVersionHistorySQL({
         COALESCE(MIN(created_at), CURRENT_TIMESTAMP) as original_created_at,
         COALESCE(
           (SELECT created_by FROM writeback_data 
-           WHERE app_id = '${appId}' AND account_id = '${accountId}' 
+           WHERE app_id = '${appId}' AND customer_name = '${escapedCustomerName}' 
            ORDER BY version ASC LIMIT 1), 
           '${escapedUsername}'
         ) as original_created_by
       FROM writeback_data 
-      WHERE app_id = '${appId}' AND account_id = '${accountId}'
+      WHERE app_id = '${appId}' AND customer_name = '${escapedCustomerName}'
     )
     INSERT INTO writeback_data (
-      app_id, account_id, base_fee, plan_type, promotion,
-      service_tickets, service_rating, probability_of_churn, shap_value,
+      app_id, customer_name, amount, aging_bucket,
+      days_past_due, risk_score, probability_of_churn,
       model_feedback, comments, created_by, modified_by, created_at, modified_at, version,
       session_id, edit_started_at, edit_duration_seconds
     )
     SELECT 
       '${appId}',
-      '${accountId}',
-      ${baseFee},
-      '${planType}',
-      '${promotion}',
-      ${serviceTickets},
-      ${serviceRating},
+      '${escapedCustomerName}',
+      ${amount},
+      '${agingBucket}',
+      ${daysPastDue},
+      ${riskScore},
       ${probabilityOfChurn},
-      ${shapValue},
       '${modelFeedback}',
       '${comments}',
       CASE WHEN next_version = 1 THEN '${escapedUsername}' ELSE original_created_by END,
@@ -243,6 +248,7 @@ function generateVersionHistorySQL({
 
   return sql;
 }
+
 /**
  * Execute SQL statements against the database
  * @param {Array} sqlStatements - Array of SQL statements
@@ -255,9 +261,8 @@ async function executeSQLStatements(sqlStatements, appId) {
   const fullWebhookUrl = `${ENV.DB_SAVE_WEBHOOK_URL}?X-Execution-Token=${ENV.DB_SAVE_TOKEN}`;
 
   for (let i = 0; i < sqlStatements.length; i++) {
-    // FIXED: Create proper payload object
     const payload = {
-      query: sqlStatements[i], // Changed from 'sql' to 'query'
+      query: sqlStatements[i],
       app_id: appId,
     };
 
@@ -273,10 +278,10 @@ async function executeSQLStatements(sqlStatements, appId) {
       const response = await fetch(fullWebhookUrl, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json", // CHANGED: from text/plain to application/json
+          "Content-Type": "application/json",
           "User-Agent": ENV.USER_AGENTS.WRITE,
         },
-        body: JSON.stringify(payload), // CHANGED: stringify the payload object
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {

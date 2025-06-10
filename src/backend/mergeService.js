@@ -1,7 +1,5 @@
 // backend/mergeService.js
-/**
- * Service for merging Qlik table data with writeback database data
- */
+import { SPECIAL_COLUMNS } from "../utils/constants.js";
 
 /**
  * Merge writeback data into table rows
@@ -28,32 +26,32 @@ export function mergeWritebackData(tableRows, writebackRows) {
     return tableRows;
   }
 
-  // Create a map for faster lookups - using the latest version for each account
+  // Create a map for faster lookups - using the latest version for each customer
   const wbMap = createWritebackMap(writebackRows);
 
   // Merge the data
   const mergedRows = tableRows.map((row, rowIndex) => {
-    // Try to get account ID from different possible fields
-    const accountId = extractAccountIdFromRow(row);
+    // Try to get customer name from the row
+    const customerName = extractCustomerNameFromRow(row);
 
     console.log(
-      `Row ${rowIndex} - Account ID: ${accountId} (${typeof accountId})`
+      `Row ${rowIndex} - Customer Name: ${customerName} (${typeof customerName})`
     );
 
-    if (!accountId) {
-      console.log(`Row ${rowIndex} - No account ID found, skipping merge`);
+    if (!customerName) {
+      console.log(`Row ${rowIndex} - No customer name found, skipping merge`);
       return row;
     }
 
     // Try to find matching writeback data
-    const wb = findWritebackMatch(wbMap, accountId);
+    const wb = findWritebackMatch(wbMap, customerName);
 
     if (wb) {
       console.log(`Row ${rowIndex} - Found matching writeback:`, wb);
       return mergeRowWithWriteback(row, wb, rowIndex);
     } else {
       console.log(
-        `Row ${rowIndex} - No matching writeback found for account: ${accountId}`
+        `Row ${rowIndex} - No matching writeback found for customer: ${customerName}`
       );
       return row; // Return original row unchanged
     }
@@ -75,31 +73,27 @@ export function mergeWritebackData(tableRows, writebackRows) {
 /**
  * Create a map of writeback data for efficient lookups
  * @param {Array} writebackRows - Array of writeback records
- * @returns {Map} Map with account IDs as keys and latest records as values
+ * @returns {Map} Map with customer names as keys and latest records as values
  */
 function createWritebackMap(writebackRows) {
   const wbMap = new Map();
-
-  // First, group by account_id and find the latest version for each account
-  const accountGroups = {};
+  const customerGroups = {};
 
   writebackRows.forEach((r, index) => {
     console.log(`Processing writeback row ${index}:`, r);
 
-    const accountId = r.account_id || r.accountId || r.AccountID || r.id;
-    if (accountId) {
-      if (!accountGroups[accountId]) {
-        accountGroups[accountId] = [];
+    const customerName = r.customer_name;
+    if (customerName) {
+      if (!customerGroups[customerName]) {
+        customerGroups[customerName] = [];
       }
-      accountGroups[accountId].push(r);
+      customerGroups[customerName].push(r);
     }
   });
 
-  // For each account, keep only the latest version
-  Object.keys(accountGroups).forEach((accountId) => {
-    const records = accountGroups[accountId];
-
-    // Sort by version descending, then by created_at descending
+  // For each customer, keep only the latest version
+  Object.keys(customerGroups).forEach((customerName) => {
+    const records = customerGroups[customerName];
     records.sort((a, b) => {
       if (a.version !== b.version) {
         return (b.version || 0) - (a.version || 0);
@@ -108,19 +102,8 @@ function createWritebackMap(writebackRows) {
     });
 
     const latestRecord = records[0];
-    console.log(`Latest record for account ${accountId}:`, latestRecord);
-
-    // Store only string version - NEVER add NaN to the map
-    wbMap.set(String(accountId), latestRecord);
-
-    // Only add number version if it's actually a valid number
-    const numericId = Number(accountId);
-    if (!isNaN(numericId)) {
-      wbMap.set(numericId, latestRecord);
-      console.log(`Also mapped numeric version: ${numericId}`);
-    } else {
-      console.log(`Skipped numeric mapping for non-numeric ID: ${accountId}`);
-    }
+    console.log(`Latest record for customer ${customerName}:`, latestRecord);
+    wbMap.set(customerName, latestRecord);
   });
 
   console.log("Created writeback map with keys:", Array.from(wbMap.keys()));
@@ -128,39 +111,23 @@ function createWritebackMap(writebackRows) {
 }
 
 /**
- * Extract account ID from a table row
+ * Extract customer name from a table row
  * @param {Object} row - Table row object
- * @returns {string|null} Account ID or null if not found
+ * @returns {string|null} Customer name or null if not found
  */
-function extractAccountIdFromRow(row) {
-  if (row.AccountID?.value) {
-    return row.AccountID.value;
-  } else if (row.accountId?.value) {
-    return row.accountId.value;
-  } else if (row.account_id?.value) {
-    return row.account_id.value;
-  }
-  return null;
+function extractCustomerNameFromRow(row) {
+  return row[SPECIAL_COLUMNS.CUSTOMER]?.value || null;
 }
 
 /**
  * Find matching writeback record from the map
  * @param {Map} wbMap - Writeback map
- * @param {string} accountId - Account ID to search for
+ * @param {string} customerName - Customer name to search for
  * @returns {Object|null} Matching writeback record or null
  */
-function findWritebackMatch(wbMap, accountId) {
-  // Try to find matching writeback data - check string first, then number only if valid
-  let wb = wbMap.get(String(accountId));
-
-  if (!wb) {
-    const numericId = Number(accountId);
-    if (!isNaN(numericId)) {
-      wb = wbMap.get(numericId);
-    }
-  }
-
-  return wb || null;
+function findWritebackMatch(wbMap, customerName) {
+  // Direct lookup by customer name
+  return wbMap.get(customerName) || null;
 }
 
 /**
@@ -231,10 +198,10 @@ export function validateWritebackData(writebackRows) {
       return;
     }
 
-    const accountId =
-      row.account_id || row.accountId || row.AccountID || row.id;
-    if (!accountId) {
-      errors.push(`Row ${index}: Missing account ID field`);
+    // UPDATED: Check for customer_name instead of account_id
+    const customerName = row.customer_name;
+    if (!customerName) {
+      errors.push(`Row ${index}: Missing customer_name field`);
     }
 
     if (

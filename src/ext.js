@@ -35,31 +35,8 @@ export default function ext(galaxy) {
                 allowSorting: {
                   type: "boolean",
                   ref: "tableOptions.allowSorting",
-                  label: "Enable Sorting",
+                  label: "Enable Header Sorting",
                   defaultValue: true,
-                },
-                showSortIcons: {
-                  type: "boolean",
-                  ref: "sortOptions.showSortIcons",
-                  label: "Show Sort Icons",
-                  defaultValue: true,
-                },
-                defaultSortDirection: {
-                  type: "string",
-                  component: "dropdown",
-                  label: "Default Sort Direction",
-                  ref: "sortOptions.defaultDirection",
-                  options: [
-                    {
-                      value: "asc",
-                      label: "Ascending",
-                    },
-                    {
-                      value: "desc",
-                      label: "Descending",
-                    },
-                  ],
-                  defaultValue: "asc",
                 },
                 allowWriteback: {
                   type: "boolean",
@@ -129,7 +106,7 @@ export default function ext(galaxy) {
                   type: "string",
                   ref: "columnLabels.status",
                   label: "Status Column Label",
-                  defaultValue: "Status",
+                  defaultValue: "Model Feedback",
                   expression: "optional",
                 },
                 commentsLabel: {
