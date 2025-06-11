@@ -439,6 +439,7 @@ export class TableRenderer {
 
   /**
    * Create data (non-editable) cell
+   * SIMPLIFIED: No progress bars, just simple text
    * @param {HTMLElement} td - Cell element
    * @param {Object} cellData - Cell data
    * @param {Object} header - Header configuration
@@ -447,17 +448,8 @@ export class TableRenderer {
    * @param {HTMLElement} tr - Table row element
    */
   createDataCell(td, cellData, header, rowIndex, layout, tr) {
-    // Special formatting for Risk column (like the original Probability of Churn)
-    if (header.id === SPECIAL_COLUMNS.RISK || header.label === "Risk") {
-      this.createRiskProgressBar(td, cellData);
-    }
-    // Keep original churn logic if it exists
-    else if (header.id === SPECIAL_COLUMNS.PROBABILITY_OF_CHURN) {
-      this.createChurnProgressBar(td, cellData);
-    } else {
-      // Regular cell for dimensions and measures
-      td.textContent = cellData.value;
-    }
+    // SIMPLIFIED: Just show text for all columns, no special formatting
+    td.textContent = cellData.value;
 
     // Add selection capability for dimension cells if enabled
     if (cellData.selectable && layout.tableOptions?.allowSelections) {
@@ -477,101 +469,5 @@ export class TableRenderer {
         this.onRowSelect(rowIndex, cellData, header);
       });
     }
-  }
-
-  /**
-   * Create risk progress bar (adapted from churn probability logic)
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} cellData - Cell data
-   */
-  createRiskProgressBar(td, cellData) {
-    // Create container for the bar and text
-    const barContainer = document.createElement("div");
-    barContainer.className = "risk-bar-container";
-
-    // Add the text display for the value
-    const valueText = document.createElement("span");
-    valueText.className = "risk-value-text";
-    valueText.textContent = cellData.value;
-
-    // Create the progress bar
-    const progressBar = document.createElement("div");
-    progressBar.className = "risk-progress-bar";
-
-    // Get the numeric value (removing % symbol if present)
-    let numValue = parseFloat(cellData.value.replace("%", ""));
-    if (isNaN(numValue)) {
-      // Try getting the numeric value from the qNum property if available
-      numValue = cellData.qNum || 0;
-    }
-
-    // Set the width of the progress bar based on the value
-    progressBar.style.width = `${numValue}%`;
-
-    // Set color based on the value (risk levels)
-    if (numValue >= RISK_LEVELS.HIGH.threshold) {
-      progressBar.classList.add(RISK_LEVELS.HIGH.className);
-    } else if (numValue >= RISK_LEVELS.MEDIUM.threshold) {
-      progressBar.classList.add(RISK_LEVELS.MEDIUM.className);
-    } else if (numValue >= RISK_LEVELS.LOW.threshold) {
-      progressBar.classList.add(RISK_LEVELS.LOW.className);
-    } else {
-      progressBar.classList.add(RISK_LEVELS.VERY_LOW.className);
-    }
-
-    // Add elements to the container
-    barContainer.appendChild(progressBar);
-    barContainer.appendChild(valueText);
-
-    // Add the container to the cell
-    td.appendChild(barContainer);
-  }
-
-  /**
-   * Create churn probability progress bar (keep original logic)
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} cellData - Cell data
-   */
-  createChurnProgressBar(td, cellData) {
-    // Create container for the bar and text
-    const barContainer = document.createElement("div");
-    barContainer.className = "churn-bar-container";
-
-    // Add the text display for the value
-    const valueText = document.createElement("span");
-    valueText.className = "churn-value-text";
-    valueText.textContent = cellData.value;
-
-    // Create the progress bar
-    const progressBar = document.createElement("div");
-    progressBar.className = "churn-progress-bar";
-
-    // Get the numeric value (removing % symbol if present)
-    let numValue = parseFloat(cellData.value.replace("%", ""));
-    if (isNaN(numValue)) {
-      // Try getting the numeric value from the qNum property if available
-      numValue = cellData.qNum || 0;
-    }
-
-    // Set the width of the progress bar based on the value
-    progressBar.style.width = `${numValue}%`;
-
-    // Set color based on the value using RISK_LEVELS (since CHURN_RISK_LEVELS removed)
-    if (numValue >= RISK_LEVELS.HIGH.threshold) {
-      progressBar.classList.add(RISK_LEVELS.HIGH.className);
-    } else if (numValue >= RISK_LEVELS.MEDIUM.threshold) {
-      progressBar.classList.add(RISK_LEVELS.MEDIUM.className);
-    } else if (numValue >= RISK_LEVELS.LOW.threshold) {
-      progressBar.classList.add(RISK_LEVELS.LOW.className);
-    } else {
-      progressBar.classList.add(RISK_LEVELS.VERY_LOW.className);
-    }
-
-    // Add elements to the container
-    barContainer.appendChild(progressBar);
-    barContainer.appendChild(valueText);
-
-    // Add the container to the cell
-    td.appendChild(barContainer);
   }
 }

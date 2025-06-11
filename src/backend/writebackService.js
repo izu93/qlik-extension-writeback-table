@@ -1,7 +1,7 @@
 // backend/writebackService.js
 /**
  * Service for writing data back to the database
- * UPDATED: Field mappings for new data structure
+ * UPDATED: New field mappings for invoice-based data structure
  */
 
 import ENV from "../config/env.js";
@@ -10,13 +10,6 @@ import { SPECIAL_COLUMNS } from "../utils/constants.js";
 
 /**
  * Save all changes to the database with version history
- * @param {Object} params - Parameters object
- * @param {Object} params.editedData - Object containing edited field values
- * @param {Object} params.tableData - Current table data
- * @param {number} params.currentPage - Current page number
- * @param {Object} params.model - Qlik model object
- * @param {Object} params.galaxy - Galaxy object for username detection
- * @returns {Promise<Object>} Result object with success status and details
  */
 export async function saveAllChanges({
   editedData,
@@ -28,7 +21,6 @@ export async function saveAllChanges({
   console.log("Saving all changes to PostgreSQL database:", editedData);
 
   try {
-    // Get username
     const username = await getOrPromptUsername(galaxy);
     console.log("Final username for save operation:", username);
 
@@ -38,14 +30,12 @@ export async function saveAllChanges({
     const sqlStatements = [];
 
     if (tableData && tableData.rows) {
-      // First, get the customers that have edits
       const customersWithEdits = getCustomersWithEdits(
         tableData.rows,
         editedData,
         currentPage
       );
 
-      // For each customer with edits, generate SQL
       for (const customerName of customersWithEdits) {
         try {
           const rowData = findRowDataByCustomerName(
@@ -83,10 +73,7 @@ export async function saveAllChanges({
     console.log(
       `Generated ${sqlStatements.length} SQL statements for database`
     );
-
-    // Execute SQL statements - PASS appId here
     const result = await executeSQLStatements(sqlStatements, appId);
-
     return result;
   } catch (error) {
     console.error("Error saving to database:", error);
@@ -100,10 +87,6 @@ export async function saveAllChanges({
 
 /**
  * Get customers that have edits
- * @param {Array} rows - Table rows
- * @param {Object} editedData - Edited data object
- * @param {number} currentPage - Current page number
- * @returns {Set} Set of customer names with edits
  */
 function getCustomersWithEdits(rows, editedData, currentPage) {
   const customersWithEdits = new Set();
@@ -127,10 +110,6 @@ function getCustomersWithEdits(rows, editedData, currentPage) {
 
 /**
  * Find row data by customer name
- * @param {Array} rows - Table rows
- * @param {string} customerName - Customer name to find
- * @param {number} currentPage - Current page number
- * @returns {Object|null} Row data or null if not found
  */
 function findRowDataByCustomerName(rows, customerName, currentPage) {
   return rows.find((row, index) => {
@@ -141,13 +120,10 @@ function findRowDataByCustomerName(rows, customerName, currentPage) {
 
 /**
  * Extract customer name from row with fallback
- * @param {Object} row - Table row
- * @param {number} rowIndex - Row index
- * @param {number} currentPage - Current page
- * @returns {string} Customer name
  */
 function extractCustomerName(row, rowIndex, currentPage) {
   return (
+    row[SPECIAL_COLUMNS.CUSTOMER_NAME]?.value ||
     row[SPECIAL_COLUMNS.CUSTOMER]?.value ||
     `row-${rowIndex}-page-${currentPage}`
   );
@@ -155,9 +131,7 @@ function extractCustomerName(row, rowIndex, currentPage) {
 
 /**
  * Generate SQL for version history insert
- * UPDATED: Uses customer_name as unique identifier instead of account_id
- * @param {Object} params - Parameters for SQL generation
- * @returns {string} SQL statement
+ * UPDATED: Uses your 7 specific columns from Qlik
  */
 function generateVersionHistorySQL({
   appId,
@@ -167,19 +141,33 @@ function generateVersionHistorySQL({
   username,
   currentPage,
 }) {
-  // UPDATED: Extract data from row with new field mappings
-  const amount = parseFloat(rowData.Amount?.value) || 0;
-  const agingBucket = (rowData["Aging buckets"]?.value || "").replace(
+  // Extract data from row with your exact field mappings
+  const customerNameValue = (
+    rowData[SPECIAL_COLUMNS.CUSTOMER]?.value || ""
+  ).replace(/'/g, "''");
+  const invoiceId = (rowData[SPECIAL_COLUMNS.INVOICE_ID]?.value || "").replace(
     /'/g,
     "''"
   );
-  const daysPastDue = parseInt(rowData["Days Past Due"]?.value) || 0;
-  const riskScore = parseFloat(rowData.Risk?.value?.replace("%", "")) || 0;
+  const currentAgingBucket = (
+    rowData[SPECIAL_COLUMNS.CURRENT_AGING_BUCKET]?.value || ""
+  ).replace(/'/g, "''");
+  const predictedPaymentBucket = (
+    rowData[SPECIAL_COLUMNS.PREDICTED_PAYMENT_BUCKET]?.value || ""
+  ).replace(/'/g, "''");
+  const paymentTerms = (
+    rowData[SPECIAL_COLUMNS.PAYMENT_TERMS]?.value || ""
+  ).replace(/'/g, "''");
 
-  // LEGACY: Keep for backward compatibility
-  const probabilityOfChurn = 0; // No longer used
+  // Handle date field
+  const invoiceDueDate = formatDateForSQL(
+    rowData[SPECIAL_COLUMNS.INVOICE_DUE_DATE]?.value
+  );
 
-  // Get edited values - use customerName as the key
+  // Handle amount field
+  const amount = parseFloat(rowData[SPECIAL_COLUMNS.AMOUNT]?.value) || 0;
+
+  // Get edited values
   const statusKey = `${customerName}-status`;
   const commentsKey = `${customerName}-comments`;
   const modelFeedback = (
@@ -196,7 +184,7 @@ function generateVersionHistorySQL({
   const escapedUsername = (username || "system_user").replace(/'/g, "''");
   const escapedCustomerName = customerName.replace(/'/g, "''");
 
-  // Session tracking (existing code)
+  // Session tracking
   const sessionId =
     window.sessionStorage.getItem("qlik_session_id") ||
     `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -205,7 +193,7 @@ function generateVersionHistorySQL({
     window.sessionStorage.setItem("qlik_session_id", sessionId);
   }
 
-  // UPDATED SQL - removed account_id, using customer_name as unique identifier
+  // UPDATED SQL with your 7 columns
   const sql = `
     WITH version_info AS (
       SELECT 
@@ -221,19 +209,21 @@ function generateVersionHistorySQL({
       WHERE app_id = '${appId}' AND customer_name = '${escapedCustomerName}'
     )
     INSERT INTO writeback_data (
-      app_id, customer_name, amount, aging_bucket,
-      days_past_due, risk_score, probability_of_churn,
-      model_feedback, comments, created_by, modified_by, created_at, modified_at, version,
-      session_id, edit_started_at, edit_duration_seconds
+      app_id, customer_name, invoice_id, current_aging_bucket, 
+      predicted_payment_bucket, payment_terms, invoice_due_date, amount,
+      model_feedback, comments, created_by, modified_by, 
+      created_at, modified_at, version, session_id, 
+      edit_started_at, edit_duration_seconds
     )
     SELECT 
       '${appId}',
       '${escapedCustomerName}',
+      '${invoiceId}',
+      '${currentAgingBucket}',
+      '${predictedPaymentBucket}',
+      '${paymentTerms}',
+      ${invoiceDueDate},
       ${amount},
-      '${agingBucket}',
-      ${daysPastDue},
-      ${riskScore},
-      ${probabilityOfChurn},
       '${modelFeedback}',
       '${comments}',
       CASE WHEN next_version = 1 THEN '${escapedUsername}' ELSE original_created_by END,
@@ -250,10 +240,55 @@ function generateVersionHistorySQL({
 }
 
 /**
+ * Format date value for SQL insertion
+ */
+function formatDateForSQL(dateValue) {
+  if (!dateValue) return "NULL";
+
+  try {
+    // Handle various date formats that might come from Qlik
+    let date;
+
+    if (typeof dateValue === "string") {
+      // Try parsing common date formats
+      if (dateValue.includes("/")) {
+        // MM/DD/YYYY or DD/MM/YYYY format
+        date = new Date(dateValue);
+      } else if (dateValue.includes("-")) {
+        // YYYY-MM-DD format
+        date = new Date(dateValue);
+      } else {
+        // Try direct parsing
+        date = new Date(dateValue);
+      }
+    } else if (typeof dateValue === "number") {
+      // Excel serial date or timestamp
+      if (dateValue > 25569) {
+        // Excel serial date after 1900-01-01
+        date = new Date((dateValue - 25569) * 86400 * 1000);
+      } else {
+        date = new Date(dateValue);
+      }
+    } else {
+      date = new Date(dateValue);
+    }
+
+    if (isNaN(date.getTime())) {
+      console.warn(`Invalid date value: ${dateValue}`);
+      return "NULL";
+    }
+
+    // Format as YYYY-MM-DD for PostgreSQL
+    const formattedDate = date.toISOString().split("T")[0];
+    return `'${formattedDate}'`;
+  } catch (error) {
+    console.warn(`Error formatting date ${dateValue}:`, error);
+    return "NULL";
+  }
+}
+
+/**
  * Execute SQL statements against the database
- * @param {Array} sqlStatements - Array of SQL statements
- * @param {string} appId - Application ID to include in payload
- * @returns {Promise<Object>} Execution result
  */
 async function executeSQLStatements(sqlStatements, appId) {
   let successCount = 0;
@@ -302,7 +337,7 @@ async function executeSQLStatements(sqlStatements, appId) {
       errors.push(`Statement ${i + 1}: ${error.message}`);
     }
 
-    // Add delay between requests to avoid overwhelming the server
+    // Add delay between requests
     if (i < sqlStatements.length - 1) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }

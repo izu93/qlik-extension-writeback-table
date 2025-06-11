@@ -1,7 +1,7 @@
 // core/dataProcessor.js
 /**
  * Data processing utilities for Qlik hypercube data
- * UPDATED: Customer name based system
+ * UPDATED: New field mappings for invoice-based data structure
  */
 
 import {
@@ -12,15 +12,10 @@ import {
 
 /**
  * Process Qlik hypercube data and transform it for the table
- * @param {Object} params - Parameters object
- * @param {Object} params.layout - Qlik layout object
- * @param {Array} params.pageData - Optional page data override
- * @returns {Object} Processed table data with headers and rows
  */
 export function processData({ layout, pageData }) {
   console.log("processData: Processing layout data", layout);
 
-  // Use provided pageData if available, otherwise use data from layout
   const qMatrix =
     pageData ||
     (layout.qHyperCube.qDataPages[0]
@@ -28,7 +23,6 @@ export function processData({ layout, pageData }) {
       : []);
   console.log("processData: Using qMatrix with", qMatrix.length, "rows");
 
-  // Get metadata for dimensions and measures
   const dimensions = layout.qHyperCube.qDimensionInfo || [];
   const measures = layout.qHyperCube.qMeasureInfo || [];
   console.log("processData: Dimensions and Measures", { dimensions, measures });
@@ -140,10 +134,6 @@ export function processData({ layout, pageData }) {
 
 /**
  * Calculate pagination information
- * @param {number} totalRowCount - Total number of rows
- * @param {number} pageSize - Number of rows per page
- * @param {number} currentPageNum - Current page number
- * @returns {Object} Pagination info object
  */
 export function calculatePaginationInfo(
   totalRowCount,
@@ -164,8 +154,6 @@ export function calculatePaginationInfo(
 
 /**
  * Get page size from layout properties with fallback
- * @param {Object} layout - Qlik layout object
- * @returns {number} Page size
  */
 export function getPageSize(layout) {
   return (
@@ -175,10 +163,7 @@ export function getPageSize(layout) {
 
 /**
  * Extract customer name from a row object
- * @param {Object} row - Table row object
- * @param {number} rowIndex - Row index as fallback
- * @param {number} currentPage - Current page number
- * @returns {string} Customer name
+ * UPDATED: Use your exact Customer field
  */
 export function extractCustomerName(row, rowIndex, currentPage) {
   return (
@@ -189,9 +174,6 @@ export function extractCustomerName(row, rowIndex, currentPage) {
 
 /**
  * Generate a unique data key for writeback fields
- * @param {string} customerName - Customer name identifier
- * @param {string} fieldId - Field identifier (status, comments, etc.)
- * @returns {string} Unique data key
  */
 export function generateDataKey(customerName, fieldId) {
   return `${customerName}-${fieldId}`;
@@ -199,8 +181,6 @@ export function generateDataKey(customerName, fieldId) {
 
 /**
  * Validate customer name for data operations
- * @param {string} customerName - Customer name to validate
- * @returns {boolean} True if customer name is valid
  */
 export function validateCustomerName(customerName) {
   return (
@@ -208,27 +188,21 @@ export function validateCustomerName(customerName) {
     typeof customerName === "string" &&
     customerName.trim().length > 0 &&
     !customerName.startsWith("row-")
-  ); // Exclude fallback names
+  );
 }
 
 /**
  * Extract field value from row data
- * @param {Object} row - Table row object
- * @param {string} fieldName - Field name to extract
- * @returns {any} Field value or null if not found
  */
 export function extractFieldValue(row, fieldName) {
   const field = row[fieldName];
   if (!field) return null;
 
-  // Return numeric value if available, otherwise text value
   return field.qNum !== undefined ? field.qNum : field.value;
 }
 
 /**
  * Get all customer names from table rows
- * @param {Array} rows - Array of table row objects
- * @returns {Array} Array of unique customer names
  */
 export function getUniqueCustomerNames(rows) {
   const customerNames = new Set();
@@ -245,10 +219,6 @@ export function getUniqueCustomerNames(rows) {
 
 /**
  * Find row by customer name
- * @param {Array} rows - Array of table row objects
- * @param {string} targetCustomerName - Customer name to find
- * @param {number} currentPage - Current page number
- * @returns {Object|null} Row object or null if not found
  */
 export function findRowByCustomerName(
   rows,
@@ -265,19 +235,67 @@ export function findRowByCustomerName(
 
 /**
  * Extract all data fields from a row for database operations
- * @param {Object} row - Table row object
- * @returns {Object} Object containing all relevant field values
+ * UPDATED: Extract your 7 specific columns
  */
 export function extractRowData(row) {
   return {
+    // Your 7 core columns
     customerName: row[SPECIAL_COLUMNS.CUSTOMER]?.value || "",
+    invoiceId: row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "",
+    currentAgingBucket: row[SPECIAL_COLUMNS.CURRENT_AGING_BUCKET]?.value || "",
+    predictedPaymentBucket:
+      row[SPECIAL_COLUMNS.PREDICTED_PAYMENT_BUCKET]?.value || "",
+    paymentTerms: row[SPECIAL_COLUMNS.PAYMENT_TERMS]?.value || "",
+    invoiceDueDate: row[SPECIAL_COLUMNS.INVOICE_DUE_DATE]?.value || "",
     amount: parseFloat(row[SPECIAL_COLUMNS.AMOUNT]?.value) || 0,
-    agingBucket: row[SPECIAL_COLUMNS.AGING_BUCKETS]?.value || "",
-    daysPastDue: parseInt(row[SPECIAL_COLUMNS.DAYS_PAST_DUE]?.value) || 0,
-    riskScore:
-      parseFloat(row[SPECIAL_COLUMNS.RISK]?.value?.replace("%", "")) || 0,
+
     // Writeback fields
     modelFeedback: row.status?.value || "",
     comments: row.comments?.value || "",
   };
+}
+
+/**
+ * Format date for display
+ */
+export function formatDateForDisplay(dateValue) {
+  if (!dateValue) return "";
+
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return dateValue; // Return original if invalid
+
+    return date.toLocaleDateString(); // Use local format
+  } catch (error) {
+    return dateValue; // Return original if error
+  }
+}
+
+/**
+ * Format currency for display
+ */
+export function formatCurrencyForDisplay(amount) {
+  if (amount === null || amount === undefined) return "";
+
+  const numAmount = parseFloat(amount);
+  if (isNaN(numAmount)) return amount.toString();
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(numAmount);
+}
+
+/**
+ * Parse numeric value from text (handles currency symbols, commas, etc.)
+ */
+export function parseNumericValue(value) {
+  if (typeof value === "number") return value;
+  if (!value) return 0;
+
+  // Remove currency symbols, commas, and other non-numeric characters except decimal point
+  const cleaned = value.toString().replace(/[^\d.-]/g, "");
+  const parsed = parseFloat(cleaned);
+
+  return isNaN(parsed) ? 0 : parsed;
 }

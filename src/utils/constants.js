@@ -1,7 +1,7 @@
 // utils/constants.js
 /**
  * Application constants and enums
- * UPDATED: Customer name based system with Risk levels
+ * UPDATED: New column names from Qlik model
  */
 
 export const COLUMN_TYPES = {
@@ -28,7 +28,7 @@ export const STATUS_ICONS = {
   "": "",
 };
 
-// UPDATED: Risk levels for the Risk column (replacing churn risk levels)
+// Risk levels for progress bars - DISABLED for now
 export const RISK_LEVELS = {
   VERY_LOW: { threshold: 0, className: "risk-very-low" },
   LOW: { threshold: 25, className: "risk-low" },
@@ -36,13 +36,8 @@ export const RISK_LEVELS = {
   HIGH: { threshold: 70, className: "risk-high" },
 };
 
-// LEGACY: Keep churn risk levels for backward compatibility if needed
-export const CHURN_RISK_LEVELS = {
-  VERY_LOW: { threshold: 5, className: "very-low-risk" },
-  LOW: { threshold: 30, className: "low-risk" },
-  MEDIUM: { threshold: 90, className: "medium-risk" },
-  HIGH: { threshold: 100, className: "high-risk" },
-};
+// DISABLED: Don't show progress bars for predicted payment bucket
+export const SHOW_PROGRESS_BARS = false;
 
 export const MESSAGE_TYPES = {
   SUCCESS: "success",
@@ -62,23 +57,38 @@ export const WRITEBACK_COLUMNS = {
   COMMENTS: "comments",
 };
 
-// UPDATED: Special columns for the new data structure
+// UPDATED: Exact column mappings from your Qlik model
 export const SPECIAL_COLUMNS = {
-  PROBABILITY_OF_CHURN: "Probability of Churn", // Legacy
-  RISK: "Risk",
-  CUSTOMER: "Customer", // CHANGE THIS - use label instead of CUSTOMER_NAME
-  AMOUNT: "Amount",
-  AGING_BUCKETS: "Aging Bucket", // CHANGE THIS - use label instead of ModelInput.Aging Bucket
-  DAYS_PAST_DUE: "Days Past Due", // CHANGE THIS - use label instead of ModelInput.Days Past Due
+  // Your exact field names from the screenshots
+  CUSTOMER: "Customer", // Main identifier
+  INVOICE_ID: "Invoice ID", // Invoice identifier
+  CURRENT_AGING_BUCKET: "Current Aging Bucket", // Bucket categorization
+  PREDICTED_PAYMENT_BUCKET: "Predicted Payment Bucket", // Prediction bucket
+  PAYMENT_TERMS: "Payment Terms", // Payment terms
+  INVOICE_DUE_DATE: "Invoice Due Date", // Due date
+  AMOUNT: "Amount", // Amount field
+
+  // Legacy support - keep these for backward compatibility
+  CUSTOMER_NAME: "Customer", // Alias for customer identification
+  INVOICE_NUMBER: "Invoice ID", // Alias for invoice
+  AGING_BUCKET: "Current Aging Bucket", // Alias for aging bucket
+  AGING_BUCKETS: "Current Aging Bucket", // Another alias
+  DUE_DATE: "Invoice Due Date", // Alias for due date
+  INVOICE_AMOUNT: "Amount", // Alias for amount
+  INVOICE_DATE: "Invoice Due Date", // Using due date as main date
+  RISK: "Predicted Payment Bucket", // Using prediction as risk indicator
+  RISK_SCORE: "Predicted Payment Bucket", // Alias for risk
 };
 
-// UPDATED: Field mappings for database columns
+// UPDATED: Field mappings for database columns - simplified for your 7 columns
 export const DB_FIELD_MAPPINGS = {
-  CUSTOMER_NAME: "customer_name",
+  CUSTOMER: "customer_name",
+  INVOICE_ID: "invoice_id", // NEW
+  CURRENT_AGING_BUCKET: "current_aging_bucket", // NEW
+  PREDICTED_PAYMENT_BUCKET: "predicted_payment_bucket", // NEW
+  PAYMENT_TERMS: "payment_terms", // NEW
+  INVOICE_DUE_DATE: "invoice_due_date", // NEW
   AMOUNT: "amount",
-  AGING_BUCKET: "aging_bucket",
-  DAYS_PAST_DUE: "days_past_due",
-  RISK_SCORE: "risk_score",
   MODEL_FEEDBACK: "model_feedback",
   COMMENTS: "comments",
   APP_ID: "app_id",
@@ -90,7 +100,16 @@ export const DB_FIELD_MAPPINGS = {
   SESSION_ID: "session_id",
   EDIT_STARTED_AT: "edit_started_at",
   EDIT_DURATION_SECONDS: "edit_duration_seconds",
-  PROBABILITY_OF_CHURN: "probability_of_churn", // Legacy field
+
+  // Legacy mappings for backward compatibility
+  CUSTOMER_NAME: "customer_name",
+  INVOICE_NUMBER: "invoice_id",
+  AGING_BUCKET: "current_aging_bucket",
+  AGING_BUCKETS: "current_aging_bucket",
+  DUE_DATE: "invoice_due_date",
+  INVOICE_AMOUNT: "amount",
+  RISK_SCORE: "predicted_payment_bucket",
+  RISK: "predicted_payment_bucket",
 };
 
 export const CSS_CLASSES = {
@@ -106,15 +125,17 @@ export const CSS_CLASSES = {
   SAVE_BUTTON: "save-all-button",
 };
 
-// UPDATED: Column order for the reordered table
+// UPDATED: Column order for your 7 columns + writeback columns
 export const COLUMN_ORDER = {
   CUSTOMER: 0,
-  AGING_BUCKETS: 1,
-  DAYS_PAST_DUE: 2,
-  RISK: 3,
-  AMOUNT: 4,
-  MODEL_FEEDBACK: 5,
-  COMMENTS: 6,
+  INVOICE_ID: 1,
+  CURRENT_AGING_BUCKET: 2,
+  PREDICTED_PAYMENT_BUCKET: 3,
+  PAYMENT_TERMS: 4,
+  INVOICE_DUE_DATE: 5,
+  AMOUNT: 6,
+  STATUS: 7, // Model Feedback
+  COMMENTS: 8, // Comments
 };
 
 // Risk thresholds for color coding
@@ -127,25 +148,18 @@ export const RISK_THRESHOLDS = {
 
 // User interaction constants
 export const USER_INTERACTION = {
-  EDIT_TIMEOUT: 30000, // 30 seconds before edit session expires
-  SAVE_DEBOUNCE: 500, // 500ms debounce for auto-save
-  CONFLICT_CHECK_INTERVAL: 10000, // 10 seconds between conflict checks
+  EDIT_TIMEOUT: 30000,
+  SAVE_DEBOUNCE: 500,
+  CONFLICT_CHECK_INTERVAL: 10000,
 };
 
-export const PAGE_CHANGE_DELAY = 2000; // 2 seconds for user page change flag reset
+export const PAGE_CHANGE_DELAY = 2000;
 
-// Storage keys for localStorage
+// Storage keys
 export const STORAGE_KEYS = {
   EDITED_DATA: "qlik_writeback_edited_data",
   USER_PREFERENCES: "qlik_writeback_user_prefs",
   LAST_SAVE_TIME: "qlik_writeback_last_save",
-};
-
-// API endpoint constants (if needed)
-export const API_ENDPOINTS = {
-  SAVE_WRITEBACK: "/api/writeback/save",
-  FETCH_WRITEBACK: "/api/writeback/fetch",
-  CHECK_CONFLICTS: "/api/writeback/conflicts",
 };
 
 // Error messages
