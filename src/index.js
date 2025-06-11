@@ -37,6 +37,7 @@ import {
   MESSAGE_TYPES,
   WRITEBACK_COLUMNS,
   COLUMN_TYPES,
+  SPECIAL_COLUMNS,
 } from "./utils/constants.js";
 
 // Import UI components
