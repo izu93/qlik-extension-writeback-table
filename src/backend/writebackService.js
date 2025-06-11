@@ -30,24 +30,26 @@ export async function saveAllChanges({
     const sqlStatements = [];
 
     if (tableData && tableData.rows) {
-      const customersWithEdits = getCustomersWithEdits(
+      const recordsWithEdits = getCustomersWithEdits(
         tableData.rows,
         editedData,
         currentPage
       );
 
-      for (const customerName of customersWithEdits) {
+      for (const record of recordsWithEdits) {
         try {
-          const rowData = findRowDataByCustomerName(
+          const rowData = findRowDataByCustomerAndInvoice(
             tableData.rows,
-            customerName,
+            record.customerName,
+            record.invoiceId,
             currentPage
           );
           if (!rowData) continue;
 
           const sql = generateVersionHistorySQL({
             appId,
-            customerName,
+            customerName: record.customerName,
+            invoiceId: record.invoiceId,
             rowData,
             editedData,
             username,
@@ -55,9 +57,14 @@ export async function saveAllChanges({
           });
 
           sqlStatements.push(sql);
-          console.log(`Generated version history SQL for ${customerName}`);
+          console.log(
+            `Generated version history SQL for ${record.customerName} - ${record.invoiceId}`
+          );
         } catch (error) {
-          console.error(`Error processing customer ${customerName}:`, error);
+          console.error(
+            `Error processing ${record.customerName} - ${record.invoiceId}:`,
+            error
+          );
         }
       }
     }
@@ -86,35 +93,71 @@ export async function saveAllChanges({
 }
 
 /**
- * Get customers that have edits
+ * Get customers and invoices that have edits
+ * Now returns objects with both customer and invoice information
  */
 function getCustomersWithEdits(rows, editedData, currentPage) {
-  const customersWithEdits = new Set();
+  const editsMap = new Map(); // Map to store unique customer+invoice combinations
 
-  rows.forEach((row, rowIndex) => {
-    const customerName = extractCustomerName(row, rowIndex, currentPage);
-    const statusKey = `${customerName}-status`;
-    const commentsKey = `${customerName}-comments`;
+  // First, parse all edited data keys to understand what was edited
+  Object.keys(editedData).forEach((key) => {
+    // Handle both composite keys (customer::invoice::field) and legacy keys (customer-field)
+    if (key.includes("::")) {
+      // New composite key format
+      const parts = key.split("::");
+      if (parts.length === 3) {
+        const [customerName, invoiceId, fieldId] = parts;
+        const compositeId = `${customerName}::${invoiceId}`;
 
-    const hasEdits =
-      editedData[statusKey] !== undefined ||
-      editedData[commentsKey] !== undefined;
+        if (!editsMap.has(compositeId)) {
+          editsMap.set(compositeId, {
+            customerName,
+            invoiceId,
+            hasEdits: true,
+          });
+        }
+      }
+    } else if (key.includes("-")) {
+      // Legacy key format (customer-field)
+      const lastDashIndex = key.lastIndexOf("-");
+      const customerName = key.substring(0, lastDashIndex);
+      const fieldId = key.substring(lastDashIndex + 1);
 
-    if (hasEdits) {
-      customersWithEdits.add(customerName);
+      // For legacy keys, we need to find matching rows by customer name only
+      rows.forEach((row, rowIndex) => {
+        const rowCustomerName = extractCustomerName(row, rowIndex, currentPage);
+        if (rowCustomerName === customerName) {
+          const invoiceId = row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "";
+          const compositeId = `${customerName}::${invoiceId}`;
+
+          if (!editsMap.has(compositeId)) {
+            editsMap.set(compositeId, {
+              customerName,
+              invoiceId,
+              hasEdits: true,
+            });
+          }
+        }
+      });
     }
   });
 
-  return customersWithEdits;
+  return Array.from(editsMap.values());
 }
 
 /**
- * Find row data by customer name
+ * Find row data by customer name and invoice ID
  */
-function findRowDataByCustomerName(rows, customerName, currentPage) {
+function findRowDataByCustomerAndInvoice(
+  rows,
+  customerName,
+  invoiceId,
+  currentPage
+) {
   return rows.find((row, index) => {
-    const currentCustomerName = extractCustomerName(row, index, currentPage);
-    return currentCustomerName === customerName;
+    const rowCustomerName = extractCustomerName(row, index, currentPage);
+    const rowInvoiceId = row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "";
+    return rowCustomerName === customerName && rowInvoiceId === invoiceId;
   });
 }
 
@@ -131,11 +174,12 @@ function extractCustomerName(row, rowIndex, currentPage) {
 
 /**
  * Generate SQL for version history insert
- * UPDATED: Uses your 7 specific columns from Qlik
+ * UPDATED: Uses composite keys for getting edited values
  */
 function generateVersionHistorySQL({
   appId,
   customerName,
+  invoiceId,
   rowData,
   editedData,
   username,
@@ -145,10 +189,9 @@ function generateVersionHistorySQL({
   const customerNameValue = (
     rowData[SPECIAL_COLUMNS.CUSTOMER]?.value || ""
   ).replace(/'/g, "''");
-  const invoiceId = (rowData[SPECIAL_COLUMNS.INVOICE_ID]?.value || "").replace(
-    /'/g,
-    "''"
-  );
+  const invoiceIdValue = (
+    rowData[SPECIAL_COLUMNS.INVOICE_ID]?.value || ""
+  ).replace(/'/g, "''");
   const currentAgingBucket = (
     rowData[SPECIAL_COLUMNS.CURRENT_AGING_BUCKET]?.value || ""
   ).replace(/'/g, "''");
@@ -167,16 +210,24 @@ function generateVersionHistorySQL({
   // Handle amount field
   const amount = parseFloat(rowData[SPECIAL_COLUMNS.AMOUNT]?.value) || 0;
 
-  // Get edited values
-  const statusKey = `${customerName}-status`;
-  const commentsKey = `${customerName}-comments`;
+  // Get edited values using composite keys
+  const compositeStatusKey = `${customerName}::${invoiceId}::status`;
+  const compositeCommentsKey = `${customerName}::${invoiceId}::comments`;
+
+  // Also check legacy keys for backward compatibility
+  const legacyStatusKey = `${customerName}-status`;
+  const legacyCommentsKey = `${customerName}-comments`;
+
   const modelFeedback = (
-    editedData[statusKey] ||
+    editedData[compositeStatusKey] ||
+    editedData[legacyStatusKey] ||
     rowData.status?.value ||
     ""
   ).replace(/'/g, "''");
+
   const comments = (
-    editedData[commentsKey] ||
+    editedData[compositeCommentsKey] ||
+    editedData[legacyCommentsKey] ||
     rowData.comments?.value ||
     ""
   ).replace(/'/g, "''");
@@ -193,7 +244,7 @@ function generateVersionHistorySQL({
     window.sessionStorage.setItem("qlik_session_id", sessionId);
   }
 
-  // UPDATED SQL with your 7 columns
+  // UPDATED SQL with composite key matching
   const sql = `
     WITH version_info AS (
       SELECT 
@@ -201,12 +252,16 @@ function generateVersionHistorySQL({
         COALESCE(MIN(created_at), CURRENT_TIMESTAMP) as original_created_at,
         COALESCE(
           (SELECT created_by FROM writeback_data 
-           WHERE app_id = '${appId}' AND customer_name = '${escapedCustomerName}' 
+           WHERE app_id = '${appId}' 
+           AND customer_name = '${escapedCustomerName}' 
+           AND invoice_id = '${invoiceIdValue}'
            ORDER BY version ASC LIMIT 1), 
           '${escapedUsername}'
         ) as original_created_by
       FROM writeback_data 
-      WHERE app_id = '${appId}' AND customer_name = '${escapedCustomerName}'
+      WHERE app_id = '${appId}' 
+      AND customer_name = '${escapedCustomerName}'
+      AND invoice_id = '${invoiceIdValue}'
     )
     INSERT INTO writeback_data (
       app_id, customer_name, invoice_id, current_aging_bucket, 
@@ -218,7 +273,7 @@ function generateVersionHistorySQL({
     SELECT 
       '${appId}',
       '${escapedCustomerName}',
-      '${invoiceId}',
+      '${invoiceIdValue}',
       '${currentAgingBucket}',
       '${predictedPaymentBucket}',
       '${paymentTerms}',

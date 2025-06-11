@@ -87,12 +87,36 @@ export default function supernova(galaxy) {
       const [isPageNavigation, setIsPageNavigation] = useState(false);
 
       // Event handlers
-      const handleCellEdit = (customerName, fieldId, value) => {
-        console.log(`Cell edited: ${customerName} - ${fieldId} = ${value}`);
+      const handleCellEdit = (rowOrCustomerName, fieldId, value) => {
+        let customerName, invoiceId, dataKey;
+
+        // Check if first parameter is a row object (new approach) or customer name (legacy)
+        if (
+          typeof rowOrCustomerName === "object" &&
+          rowOrCustomerName !== null
+        ) {
+          // New approach: row object passed
+          const row = rowOrCustomerName;
+          customerName = row[SPECIAL_COLUMNS.CUSTOMER]?.value || "";
+          invoiceId = row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "";
+          dataKey = generateDataKey(row, fieldId);
+
+          console.log(
+            `Cell edited: ${customerName} - ${invoiceId} - ${fieldId} = ${value}`
+          );
+        } else {
+          // Legacy approach: customer name passed
+          customerName = rowOrCustomerName;
+          invoiceId = ""; // No invoice ID in legacy approach
+          dataKey = generateSimpleDataKey(customerName, fieldId);
+
+          console.log(
+            `Cell edited (legacy): ${customerName} - ${fieldId} = ${value}`
+          );
+        }
 
         notificationManager.trackEditStart(customerName, fieldId);
 
-        const dataKey = generateDataKey(customerName, fieldId);
         setEditedData((prev) => ({
           ...prev,
           [dataKey]: value,

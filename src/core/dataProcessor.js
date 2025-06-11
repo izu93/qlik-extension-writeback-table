@@ -163,7 +163,10 @@ export function getPageSize(layout) {
 
 /**
  * Extract customer name from a row object
- * UPDATED: Use your exact Customer field
+ * @param {Object} row - Row object
+ * @param {number} rowIndex - Row index
+ * @param {number} currentPage - Current page number
+ * @returns {string} Customer name for identification
  */
 export function extractCustomerName(row, rowIndex, currentPage) {
   return (
@@ -174,8 +177,26 @@ export function extractCustomerName(row, rowIndex, currentPage) {
 
 /**
  * Generate a unique data key for writeback fields
+ * Now uses composite key: customerName + invoiceId
+ * @param {Object} row - Row object containing customer and invoice data
+ * @param {string} fieldId - Field identifier (status or comments)
+ * @returns {string} Unique key for the field
  */
-export function generateDataKey(customerName, fieldId) {
+export function generateDataKey(row, fieldId) {
+  const customerName = row[SPECIAL_COLUMNS.CUSTOMER]?.value || "";
+  const invoiceId = row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "";
+
+  // Create composite key
+  return `${customerName}::${invoiceId}::${fieldId}`;
+}
+
+/**
+ * Generate a simple data key (for backward compatibility)
+ * @param {string} customerName - Customer name
+ * @param {string} fieldId - Field identifier
+ * @returns {string} Data key
+ */
+export function generateSimpleDataKey(customerName, fieldId) {
   return `${customerName}-${fieldId}`;
 }
 

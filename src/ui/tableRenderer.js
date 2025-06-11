@@ -148,7 +148,10 @@ export class TableRenderer {
    */
   createWritebackCell(td, row, header, editedData, rowIndex, currentPage) {
     const customerName = extractCustomerName(row, rowIndex, currentPage);
-    const dataKey = generateDataKey(customerName, header.id);
+    const invoiceId = row[SPECIAL_COLUMNS.INVOICE_ID]?.value || "";
+
+    // Use composite key for unique identification
+    const dataKey = generateDataKey(row, header.id);
     const cellData = row[header.id];
 
     if (header.id === "status") {
@@ -157,7 +160,9 @@ export class TableRenderer {
         cellData,
         editedData,
         dataKey,
-        customerName
+        customerName,
+        invoiceId,
+        row
       );
     } else {
       this.createTextInput(
@@ -166,7 +171,9 @@ export class TableRenderer {
         editedData,
         dataKey,
         customerName,
-        header.id
+        invoiceId,
+        header.id,
+        row
       );
     }
   }
@@ -174,7 +181,15 @@ export class TableRenderer {
   /**
    * Create status dropdown cell
    */
-  createStatusDropdown(td, cellData, editedData, dataKey, customerName) {
+  createStatusDropdown(
+    td,
+    cellData,
+    editedData,
+    dataKey,
+    customerName,
+    invoiceId,
+    row
+  ) {
     const selectContainer = document.createElement("div");
     selectContainer.className = "status-select-container";
 
@@ -208,17 +223,50 @@ export class TableRenderer {
     // Handle changes to the dropdown
     select.addEventListener("change", (e) => {
       console.log(
-        `Status changed for customer ${customerName}:`,
+        `Status changed for customer ${customerName}, invoice ${invoiceId}:`,
         e.target.value
       );
 
-      this.onCellEdit(customerName, "status", e.target.value);
+      // Pass the entire row object for composite key generation
+      this.onCellEdit(row, "status", e.target.value);
       this.updateStatusAppearance(selectContainer, statusIcon, e.target.value);
     });
 
     selectContainer.appendChild(statusIcon);
     selectContainer.appendChild(select);
     td.appendChild(selectContainer);
+  }
+
+  /**
+   * Create text input cell
+   */
+  createTextInput(
+    td,
+    cellData,
+    editedData,
+    dataKey,
+    customerName,
+    invoiceId,
+    fieldId,
+    row
+  ) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "comments-input";
+    input.value = editedData[dataKey] || cellData.value || "";
+
+    // Handle changes to the input field
+    input.addEventListener("change", (e) => {
+      console.log(
+        `${fieldId} changed for customer ${customerName}, invoice ${invoiceId}:`,
+        e.target.value
+      );
+
+      // Pass the entire row object for composite key generation
+      this.onCellEdit(row, fieldId, e.target.value);
+    });
+
+    td.appendChild(input);
   }
 
   /**
@@ -240,27 +288,6 @@ export class TableRenderer {
     } else {
       icon.innerHTML = STATUS_ICONS[""];
     }
-  }
-
-  /**
-   * Create text input cell
-   */
-  createTextInput(td, cellData, editedData, dataKey, customerName, fieldId) {
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "comments-input";
-    input.value = editedData[dataKey] || cellData.value || "";
-
-    // Handle changes to the input field
-    input.addEventListener("change", (e) => {
-      console.log(
-        `${fieldId} changed for customer ${customerName}:`,
-        e.target.value
-      );
-      this.onCellEdit(customerName, fieldId, e.target.value);
-    });
-
-    td.appendChild(input);
   }
 
   /**

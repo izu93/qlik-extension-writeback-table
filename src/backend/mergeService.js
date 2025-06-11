@@ -26,16 +26,17 @@ export function mergeWritebackData(tableRows, writebackRows) {
     return tableRows;
   }
 
-  // Create a map for faster lookups - using the latest version for each customer
+  // Create a map for faster lookups - using composite key (customer + invoice)
   const wbMap = createWritebackMap(writebackRows);
 
   // Merge the data
   const mergedRows = tableRows.map((row, rowIndex) => {
-    // Try to get customer name from the row
+    // Get both customer name and invoice ID for unique identification
     const customerName = extractCustomerNameFromRow(row);
+    const invoiceId = extractInvoiceIdFromRow(row);
 
     console.log(
-      `Row ${rowIndex} - Customer Name: ${customerName} (${typeof customerName})`
+      `Row ${rowIndex} - Customer: ${customerName}, Invoice: ${invoiceId}`
     );
 
     if (!customerName) {
@@ -43,15 +44,15 @@ export function mergeWritebackData(tableRows, writebackRows) {
       return row;
     }
 
-    // Try to find matching writeback data
-    const wb = findWritebackMatch(wbMap, customerName);
+    // Try to find matching writeback data using composite key
+    const wb = findWritebackMatch(wbMap, customerName, invoiceId);
 
     if (wb) {
       console.log(`Row ${rowIndex} - Found matching writeback:`, wb);
       return mergeRowWithWriteback(row, wb, rowIndex);
     } else {
       console.log(
-        `Row ${rowIndex} - No matching writeback found for customer: ${customerName}`
+        `Row ${rowIndex} - No matching writeback found for customer: ${customerName}, invoice: ${invoiceId}`
       );
       return row; // Return original row unchanged
     }
@@ -73,27 +74,32 @@ export function mergeWritebackData(tableRows, writebackRows) {
 /**
  * Create a map of writeback data for efficient lookups
  * @param {Array} writebackRows - Array of writeback records
- * @returns {Map} Map with customer names as keys and latest records as values
+ * @returns {Map} Map with composite keys (customer+invoice) and latest records as values
  */
 function createWritebackMap(writebackRows) {
   const wbMap = new Map();
-  const customerGroups = {};
+  const compositeKeyGroups = {};
 
   writebackRows.forEach((r, index) => {
     console.log(`Processing writeback row ${index}:`, r);
 
     const customerName = r.customer_name;
+    const invoiceId = r.invoice_id;
+
     if (customerName) {
-      if (!customerGroups[customerName]) {
-        customerGroups[customerName] = [];
+      // Create composite key
+      const compositeKey = createCompositeKey(customerName, invoiceId);
+
+      if (!compositeKeyGroups[compositeKey]) {
+        compositeKeyGroups[compositeKey] = [];
       }
-      customerGroups[customerName].push(r);
+      compositeKeyGroups[compositeKey].push(r);
     }
   });
 
-  // For each customer, keep only the latest version
-  Object.keys(customerGroups).forEach((customerName) => {
-    const records = customerGroups[customerName];
+  // For each composite key, keep only the latest version
+  Object.keys(compositeKeyGroups).forEach((compositeKey) => {
+    const records = compositeKeyGroups[compositeKey];
     records.sort((a, b) => {
       if (a.version !== b.version) {
         return (b.version || 0) - (a.version || 0);
@@ -102,12 +108,23 @@ function createWritebackMap(writebackRows) {
     });
 
     const latestRecord = records[0];
-    console.log(`Latest record for customer ${customerName}:`, latestRecord);
-    wbMap.set(customerName, latestRecord);
+    console.log(`Latest record for ${compositeKey}:`, latestRecord);
+    wbMap.set(compositeKey, latestRecord);
   });
 
   console.log("Created writeback map with keys:", Array.from(wbMap.keys()));
   return wbMap;
+}
+
+/**
+ * Create a composite key from customer name and invoice ID
+ * @param {string} customerName - Customer name
+ * @param {string} invoiceId - Invoice ID
+ * @returns {string} Composite key
+ */
+function createCompositeKey(customerName, invoiceId) {
+  // Use a delimiter that's unlikely to appear in data
+  return `${customerName}::${invoiceId || "NO_INVOICE"}`;
 }
 
 /**
@@ -120,14 +137,24 @@ function extractCustomerNameFromRow(row) {
 }
 
 /**
+ * Extract invoice ID from a table row
+ * @param {Object} row - Table row object
+ * @returns {string|null} Invoice ID or null if not found
+ */
+function extractInvoiceIdFromRow(row) {
+  return row[SPECIAL_COLUMNS.INVOICE_ID]?.value || null;
+}
+
+/**
  * Find matching writeback record from the map
  * @param {Map} wbMap - Writeback map
  * @param {string} customerName - Customer name to search for
+ * @param {string} invoiceId - Invoice ID to search for
  * @returns {Object|null} Matching writeback record or null
  */
-function findWritebackMatch(wbMap, customerName) {
-  // Direct lookup by customer name
-  return wbMap.get(customerName) || null;
+function findWritebackMatch(wbMap, customerName, invoiceId) {
+  const compositeKey = createCompositeKey(customerName, invoiceId);
+  return wbMap.get(compositeKey) || null;
 }
 
 /**
@@ -198,10 +225,16 @@ export function validateWritebackData(writebackRows) {
       return;
     }
 
-    // UPDATED: Check for customer_name instead of account_id
+    // Check for required fields
     const customerName = row.customer_name;
     if (!customerName) {
       errors.push(`Row ${index}: Missing customer_name field`);
+    }
+
+    // Invoice ID is now important for unique identification
+    const invoiceId = row.invoice_id;
+    if (!invoiceId) {
+      errors.push(`Row ${index}: Missing invoice_id field`);
     }
 
     if (
