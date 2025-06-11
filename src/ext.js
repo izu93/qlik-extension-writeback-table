@@ -32,12 +32,6 @@ export default function ext(galaxy) {
                   label: "Enable Selections",
                   defaultValue: true,
                 },
-                allowSorting: {
-                  type: "boolean",
-                  ref: "tableOptions.allowSorting",
-                  label: "Enable Header Sorting",
-                  defaultValue: true,
-                },
                 allowWriteback: {
                   type: "boolean",
                   ref: "tableOptions.allowWriteback",
@@ -52,7 +46,6 @@ export default function ext(galaxy) {
                 },
               },
             },
-            // Add pagination section
             paginationSection: {
               type: "items",
               label: "Pagination Settings",
@@ -96,12 +89,10 @@ export default function ext(galaxy) {
                 },
               },
             },
-            // Keep the writeback column labels section
             columnLabels: {
               type: "items",
               label: "Writeback Column Labels",
               items: {
-                // Label customization for writeback columns
                 statusLabel: {
                   type: "string",
                   ref: "columnLabels.status",

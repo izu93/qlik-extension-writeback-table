@@ -1,8 +1,7 @@
 // index.js - Main entry point for the Qlik writeback extension
 /**
  * Modular Qlik Writeback Table Extension
- * Main coordinator that imports and orchestrates all modules
- * UPDATED: Uses customer_name instead of account_id
+ * CLEAN: No custom sorting - back to working baseline
  */
 
 // Import Qlik hooks
@@ -87,11 +86,10 @@ export default function supernova(galaxy) {
       const [wasInSelectionMode, setWasInSelectionMode] = useState(false);
       const [isPageNavigation, setIsPageNavigation] = useState(false);
 
-      // DEFINE EVENT HANDLERS FIRST - Before they're used in useState
+      // Event handlers
       const handleCellEdit = (customerName, fieldId, value) => {
         console.log(`Cell edited: ${customerName} - ${fieldId} = ${value}`);
 
-        // NEW: Track edit start
         notificationManager.trackEditStart(customerName, fieldId);
 
         const dataKey = generateDataKey(customerName, fieldId);
@@ -102,12 +100,12 @@ export default function supernova(galaxy) {
 
         setHasUnsavedChanges(true);
 
-        // Save to localStorage (existing code, but add user info)
+        // Save to localStorage
         try {
           const dataToSave = {
             changes: { ...editedData, [dataKey]: value },
             timestamp: new Date().toISOString(),
-            user: notificationManager.currentUser, // NEW
+            user: notificationManager.currentUser,
           };
           localStorage.setItem(
             ENV.STORAGE_KEYS.EDITED_DATA,
@@ -172,112 +170,6 @@ export default function supernova(galaxy) {
         }
       };
 
-      const handleSort = async (headerInfo, direction) => {
-        console.log(`Sort requested: ${headerInfo.id} - ${direction}`);
-
-        // ONLY allow sorting on Amount column
-        if (headerInfo.id !== "Amount" && headerInfo.label !== "Amount") {
-          console.log("Sorting only available for Amount column");
-          return;
-        }
-
-        try {
-          setIsLoading(true);
-
-          const dimensions = layout.qHyperCube.qDimensionInfo || [];
-          const measures = layout.qHyperCube.qMeasureInfo || [];
-
-          let sortColumnIndex = -1;
-          let sortType = "";
-
-          // Check if Amount is a measure
-          const measIndex = measures.findIndex(
-            (meas) => meas.qFallbackTitle === "Amount"
-          );
-          if (measIndex !== -1) {
-            sortColumnIndex = measIndex;
-            sortType = "measure";
-          } else {
-            // Check if Amount is a dimension (unlikely but just in case)
-            const dimIndex = dimensions.findIndex(
-              (dim) => dim.qFallbackTitle === "Amount"
-            );
-            if (dimIndex !== -1) {
-              sortColumnIndex = dimIndex;
-              sortType = "dimension";
-            }
-          }
-
-          if (sortColumnIndex === -1) {
-            console.log("Amount column not found for sorting");
-            console.log(
-              "Available measures:",
-              measures.map((m) => m.qFallbackTitle)
-            );
-            console.log(
-              "Available dimensions:",
-              dimensions.map((d) => d.qFallbackTitle)
-            );
-            setIsLoading(false);
-            return;
-          }
-
-          console.log(
-            `Sorting Amount (${sortType}) at index ${sortColumnIndex} in direction ${direction}`
-          );
-
-          // Create sort direction for Qlik (1 = ascending, -1 = descending)
-          const sortDirection = direction === "asc" ? 1 : -1;
-
-          let patches = [];
-
-          if (sortType === "measure") {
-            // Sort Amount measure numerically
-            patches = [
-              {
-                qPath: `/qHyperCubeDef/qMeasures/${sortColumnIndex}/qSortBy/qSortByNumeric`,
-                qOp: "replace",
-                qValue: `${sortDirection}`,
-              },
-            ];
-          } else {
-            // Sort Amount dimension numerically (if it's a dimension)
-            patches = [
-              {
-                qPath: `/qHyperCubeDef/qDimensions/${sortColumnIndex}/qDef/qSortCriterias/0/qSortByNumeric`,
-                qOp: "replace",
-                qValue: `${sortDirection}`,
-              },
-            ];
-          }
-
-          console.log("Applying Amount sort patches:", patches);
-
-          // Apply sort patches to the model - this sorts the ENTIRE dataset
-          await model.applyPatches(patches);
-
-          console.log(
-            `Amount sort applied successfully in ${direction} direction`
-          );
-
-          // Reset to page 1 after sorting to see the sorted results
-          paginationManager.reset();
-
-          // The layout effect will automatically trigger and re-render with the entire sorted dataset
-        } catch (error) {
-          console.error("Error sorting Amount:", error);
-          messageRenderer.showMessage(
-            `Error sorting by Amount: ${error.message}`,
-            MESSAGE_TYPES.ERROR,
-            element
-          );
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      // Replace your handlePageChange with this optimized version:
-
       const handlePageChange = async (newPage) => {
         console.log(`Page change requested: ${newPage}`);
         setIsLoading(true);
@@ -289,16 +181,16 @@ export default function supernova(galaxy) {
             async ({ pageData, paginationInfo }) => {
               console.log(`Processing page ${newPage} data...`);
 
-              // INSTANT: Show Qlik data immediately (no waiting!)
+              // Show Qlik data immediately
               const qlikFormattedData = processData({ layout, pageData });
               setTableData(qlikFormattedData);
-              setIsLoading(false); // Remove loading spinner immediately
+              setIsLoading(false);
 
               console.log(
                 "Instant render complete, merging writeback data in background..."
               );
 
-              // BACKGROUND: Merge writeback data without blocking UI
+              // Merge writeback data without blocking UI
               setTimeout(async () => {
                 const appId = getConsistentAppId(model);
 
@@ -317,13 +209,12 @@ export default function supernova(galaxy) {
                     );
                     console.log("Background merge complete, updating UI...");
 
-                    // Smooth update with merged data
                     setTableData({ ...qlikFormattedData, rows: finalRows });
                   }
                 } catch (mergeError) {
                   console.error("Background merge error:", mergeError);
                 }
-              }, 50); // Tiny delay to ensure UI renders first
+              }, 50);
 
               setSelectedRow(null);
               console.log(`Page ${newPage} instantly loaded`);
@@ -337,14 +228,12 @@ export default function supernova(galaxy) {
         }
       };
 
-      // Add this to prevent rapid clicking
-      let saveInProgress = false;
       const handleSaveChanges = async () => {
         if (isSaving || !hasUnsavedChanges) {
           console.log("Save ignored - either already saving or no changes");
           return;
         }
-        saveInProgress = true;
+
         console.log("Save button clicked, starting save process");
         setIsSaving(true);
         messageRenderer.showMessage(
@@ -363,12 +252,12 @@ export default function supernova(galaxy) {
           });
 
           if (result.success) {
-            // NEW: Show success with user info
             notificationManager.showSaveSuccess(
               result.successCount,
               result.totalCount
             );
-            // 1. Clear local state first
+
+            // Clear local state
             setEditedData({});
             setHasUnsavedChanges(false);
             localStorage.removeItem(ENV.STORAGE_KEYS.EDITED_DATA);
@@ -379,45 +268,28 @@ export default function supernova(galaxy) {
               element
             );
 
-            // 2. Force refresh with delay to ensure DB consistency
-            console.log("Forcing data refresh after successful save...");
-
+            // Force refresh with delay
             setTimeout(async () => {
               try {
                 const appId = getConsistentAppId(model);
-                console.log("Fetching latest data for refresh...");
-
                 const latestWritebacks = await fetchLatestWritebacks(appId);
-                console.log("Fetched writeback data:", latestWritebacks);
 
                 if (latestWritebacks?.length > 0) {
                   setTableData((prevData) => {
                     if (!prevData?.rows) return prevData;
 
-                    console.log("Starting merge for refresh...");
                     const mergedRows = mergeWritebackData(
                       prevData.rows,
                       latestWritebacks
                     );
 
-                    console.log("Merge complete - updating table data");
-                    console.log("Merged rows sample:", mergedRows.slice(0, 2));
-
                     return { ...prevData, rows: mergedRows };
                   });
-
-                  // 3. Force a re-render after state update
-                  setTimeout(() => {
-                    console.log("Triggering table re-render...");
-                    // This will trigger the renderTable useEffect
-                  }, 100);
-                } else {
-                  console.warn("No writeback data received during refresh");
                 }
               } catch (refreshError) {
                 console.error("Error during post-save refresh:", refreshError);
               }
-            }, 1000); // Wait 1 second for DB consistency
+            }, 1000);
           } else {
             messageRenderer.showMessage(result.message, result.type, element);
           }
@@ -429,22 +301,18 @@ export default function supernova(galaxy) {
             element
           );
         } finally {
-          saveInProgress = false;
           setIsSaving(false);
         }
       };
 
-      // NOW Initialize managers with the handlers (they're defined now)
-      // Initialize pagination manager
+      // Initialize managers
       const [paginationManager] = useState(() => new PaginationManager(model));
 
-      // Initialize UI renderers
       const [tableRenderer] = useState(
         () =>
           new TableRenderer({
             onCellEdit: handleCellEdit,
             onRowSelect: handleRowSelect,
-            onSort: handleSort, // Re-enabled sorting
           })
       );
 
@@ -477,27 +345,24 @@ export default function supernova(galaxy) {
         }
       }, []);
 
-      // Main layout effect - processes data when layout changes
-      // Main layout effect - processes data when layout changes
+      // Main layout effect - CLEAN VERSION
       useEffect(() => {
         if (!layout || !layout.qHyperCube) return;
 
         const layoutId = layout.qInfo?.qId || "";
-        console.log(
-          `Layout effect triggered. Layout ID: ${layoutId}, Previous: ${lastLayoutId}`
-        );
+        console.log("Layout effect triggered. Layout ID:", layoutId);
         console.log("Is page navigation:", isPageNavigation);
 
         // Skip processing if this is just a page navigation
         if (isPageNavigation) {
           console.log(
-            "⏭Skipping layout processing - page navigation in progress"
+            "Skipping layout processing - page navigation in progress"
           );
           return;
         }
+
         // Initialize pagination with layout data
         paginationManager.initialize(layout);
-        const pageInfo = paginationManager.getCurrentPageInfo();
 
         // Check if we should reset to page one
         const shouldReset = paginationManager.shouldResetToPageOne(
@@ -525,17 +390,22 @@ export default function supernova(galaxy) {
           let qlikFormattedData;
           const currentPage = paginationManager.currentPage;
 
-          // Get Qlik data
-          if (shouldReset || currentPage === 1) {
+          // Use layout data for page 1, fetch for other pages
+          if (currentPage === 1) {
+            console.log("Using layout data for page 1");
             qlikFormattedData = processData({ layout });
           } else {
             try {
+              console.log(`Fetching data for page ${currentPage}`);
               const pageData = await paginationManager.fetchPageData(
                 currentPage
               );
               if (pageData && pageData.length > 0) {
                 qlikFormattedData = processData({ layout, pageData });
               } else {
+                console.log(
+                  "No page data, falling back to layout and resetting to page 1"
+                );
                 qlikFormattedData = processData({ layout });
                 paginationManager.reset();
               }
@@ -553,37 +423,29 @@ export default function supernova(galaxy) {
         async function mergeWritebackDataFromDB(qlikData) {
           console.log("=== Starting DB data fetch and merge ===");
           const appId = getConsistentAppId(model);
-          console.log("Using app_id for fetch:", appId);
 
           let mergedRows = qlikData.rows;
 
           try {
             const latestWritebacks = await fetchLatestWritebacks(appId);
-            console.log("Raw fetched writeback data:", latestWritebacks);
+            console.log(
+              "Fetched writeback records:",
+              latestWritebacks?.length || 0
+            );
 
             if (latestWritebacks && latestWritebacks.length > 0) {
-              console.log(
-                "Processing",
-                latestWritebacks.length,
-                "writeback records"
-              );
               mergedRows = mergeWritebackData(qlikData.rows, latestWritebacks);
-              console.log(
-                "Successfully merged writeback data into",
-                mergedRows.length,
-                "table rows"
-              );
+              console.log("Successfully merged writeback data");
             } else {
               console.log("No writeback data found - using original Qlik data");
             }
           } catch (err) {
             console.error("Error fetching/merging DB writeback data:", err);
-            console.log("Falling back to original Qlik data without merge");
           }
 
           // Set the final table data
           setTableData({ ...qlikData, rows: mergedRows });
-          console.log("=== Table data updated with merge complete ===");
+          console.log("=== Table data updated ===");
         }
       }, [layout, lastLayoutId, paginationManager.userChangedPage]);
 
@@ -595,7 +457,6 @@ export default function supernova(galaxy) {
           `Selection state changed: was ${wasInSelectionMode}, is now ${isInSelectionMode}`
         );
 
-        // If exiting selection mode, prevent page reset
         if (wasInSelectionMode && !isInSelectionMode) {
           console.log(
             "SELECTION CANCELLED - Setting user changed page to true to prevent reset"
@@ -604,18 +465,11 @@ export default function supernova(galaxy) {
         }
 
         setWasInSelectionMode(isInSelectionMode);
-
-        // DON'T reset selected row when leaving selection mode - keep it for visual feedback
-        // if (!selections.isActive() && selectedRow !== null) {
-        //   setSelectedRow(null);
-        // }
       }, [layout.qSelectionInfo, wasInSelectionMode, selections.isActive()]);
 
       // Auto-refresh effect for writeback data
       useEffect(() => {
         console.log("🔍 Auto-refresh useEffect triggered");
-        console.log("🔍 Table data exists:", !!tableData?.rows?.length);
-        console.log("🔍 ENV.AUTO_REFRESH_INTERVAL:", ENV.AUTO_REFRESH_INTERVAL);
 
         if (!tableData?.rows?.length) {
           console.log("Auto-refresh: No table data, skipping setup");
@@ -664,7 +518,7 @@ export default function supernova(galaxy) {
           console.log("Auto-refresh: Cleaning up timer");
           clearInterval(timer);
         };
-      }, [tableData?.rows?.length, model?.id]); //  Now waits for table data
+      }, [tableData?.rows?.length, model?.id]);
 
       // Main render effect
       useEffect(() => {
@@ -677,7 +531,8 @@ export default function supernova(galaxy) {
         hasUnsavedChanges,
         isSaving,
       ]);
-      // notification manager effect
+
+      // Notification manager effect
       useEffect(() => {
         async function initializeNotifications() {
           const username = await getOrPromptUsername(galaxy);
@@ -691,6 +546,7 @@ export default function supernova(galaxy) {
           notificationManager.destroy();
         };
       }, []);
+
       // Main render function
       async function renderTable() {
         try {
@@ -704,9 +560,6 @@ export default function supernova(galaxy) {
             `;
             return;
           }
-
-          // REMOVED: Skip rendering in selection mode - allow rendering always
-          // This ensures save button stays visible during selections
 
           // Clear and create container
           element.innerHTML = "";
@@ -724,12 +577,11 @@ export default function supernova(galaxy) {
             currentPage: paginationManager.currentPage,
           });
 
-          // Render pagination if enabled - ALWAYS render if writeback is enabled
+          // Render pagination if enabled
           const paginationEnabled = layout.paginationOptions?.enabled !== false;
           const pageInfo = paginationManager.getCurrentPageInfo();
           const hasWriteback = layout.tableOptions?.allowWriteback;
 
-          // Show pagination if enabled OR if writeback is enabled (for save button)
           if ((paginationEnabled && pageInfo.totalPages > 1) || hasWriteback) {
             paginationRenderer.render({
               container,
@@ -766,7 +618,6 @@ export default function supernova(galaxy) {
       }
 
       async function addStyles() {
-        // Check if styles already exist
         if (document.querySelector("#writeback-table-styles")) {
           console.log("Styles already loaded");
           return;
@@ -774,11 +625,10 @@ export default function supernova(galaxy) {
 
         console.log("Loading inline CSS styles...");
 
-        // Use inline styles instead of fetching external file
         const style = document.createElement("style");
         style.id = "writeback-table-styles";
         style.textContent = `
-    /* Comprehensive styles for writeback table */
+    /* Clean styles for writeback table - no sort functionality */
     .writeback-table-container {
       position: relative;
       width: 100%;
@@ -838,7 +688,6 @@ export default function supernova(galaxy) {
       background-color: #e9ecef;
     }
 
-    /* Row hover effects */
     .writeback-table tbody tr {
       cursor: pointer;
       transition: all 0.2s ease;
@@ -850,7 +699,6 @@ export default function supernova(galaxy) {
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
-    /* Individual cell hover for better precision */
     .writeback-table tbody td {
       cursor: pointer;
       transition: background-color 0.15s ease;
@@ -860,13 +708,11 @@ export default function supernova(galaxy) {
       background-color: #dee2e6;
     }
 
-    /* Special hover for selectable cells (dimensions) */
     .writeback-table td.selectable:hover {
       background-color: #cce5ff !important;
       border-left: 3px solid #007bff;
     }
 
-    /* Don't change cursor for input fields */
     .writeback-table input,
     .writeback-table select {
       cursor: text;
@@ -876,7 +722,6 @@ export default function supernova(galaxy) {
       cursor: pointer;
     }
 
-    /* Enhance selected row appearance */
     .writeback-table tr.selected-row {
       background-color: #d4edda !important;
       border-left: 4px solid #28a745;
@@ -886,7 +731,6 @@ export default function supernova(galaxy) {
       background-color: #c3e6cb !important;
     }
     
-    /* Status dropdown styling */
     .status-select-container {
       display: flex;
       align-items: center;
@@ -926,7 +770,6 @@ export default function supernova(galaxy) {
       box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
     }
     
-    /* Comments input styling */
     .comments-input {
       width: 100%;
       padding: 6px 8px;
@@ -943,55 +786,6 @@ export default function supernova(galaxy) {
       box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
     }
     
-    /* Risk progress bar styling */
-    .risk-bar-container {
-      position: relative;
-      width: 100%;
-      height: 24px;
-      background-color: #e9ecef;
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-    }
-
-    .risk-progress-bar {
-      height: 100%;
-      border-radius: 12px;
-      transition: width 0.3s ease;
-      min-width: 20px; /* Ensure some visibility even for small values */
-    }
-
-    .risk-value-text {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      font-weight: 600;
-      font-size: 12px;
-      color: #212529;
-      z-index: 2;
-      text-shadow: 0 0 3px rgba(255,255,255,0.8);
-    }
-
-    /* Risk level colors */
-    .risk-very-low {
-      background: linear-gradient(90deg, #28a745, #20c997);
-    }
-
-    .risk-low {
-      background: linear-gradient(90deg, #ffc107, #fd7e14);
-    }
-
-    .risk-medium {
-      background: linear-gradient(90deg, #fd7e14, #dc3545);
-    }
-
-    .risk-high {
-      background: linear-gradient(90deg, #dc3545, #6f42c1);
-    }
-    
-    /* Pagination styling */
     .pagination-container {
       display: flex;
       justify-content: space-between;
@@ -1058,7 +852,6 @@ export default function supernova(galaxy) {
       font-size: 14px;
     }
     
-    /* Save button styling */
     .save-all-button {
       padding: 10px 20px;
       background-color: #007bff;
@@ -1085,7 +878,6 @@ export default function supernova(galaxy) {
       cursor: wait;
     }
 
-    /* Message styling */
     .save-message {
       position: fixed;
       bottom: 20px;
@@ -1121,7 +913,6 @@ export default function supernova(galaxy) {
       100% { opacity: 0; transform: translateY(20px); }
     }
 
-    /* Loading overlay */
     .loading-overlay {
       position: absolute;
       top: 0;
@@ -1165,7 +956,6 @@ export default function supernova(galaxy) {
       100% { transform: rotate(360deg); }
     }
 
-    /* Icons */
     .thumbs-up-icon {
       color: #28a745;
     }
@@ -1174,7 +964,6 @@ export default function supernova(galaxy) {
       color: #dc3545;
     }
 
-    /* Responsive design */
     @media (max-width: 768px) {
       .pagination-container {
         flex-direction: column;
@@ -1186,75 +975,12 @@ export default function supernova(galaxy) {
         justify-content: center;
       }
     }
-
-    /* Sort CSS */
-    .sortable {
-      cursor: pointer;
-      position: relative;
-      padding-right: 40px !important;
-      user-select: none; /* Prevent text selection when clicking */
-    }
-
-    .sortable:hover {
-      background-color: #e9ecef;
-    }
-
-    .sort-icon-container {
-      position: absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-    }
-
-    .sort-icon {
-      font-size: 11px;
-      color: #6c757d;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      line-height: 1;
-      padding: 2px;
-      border-radius: 2px;
-      font-weight: bold;
-    }
-
-    .sort-icon:hover {
-      color: #007bff;
-      background-color: rgba(0, 123, 255, 0.1);
-      transform: scale(1.1);
-    }
-
-    .sort-icon.active {
-      color: #007bff;
-      background-color: rgba(0, 123, 255, 0.2);
-      box-shadow: 0 0 0 1px #007bff;
-    }
-
-    .sort-icon.asc-icon:hover {
-      color: #28a745; /* Green for ascending */
-    }
-
-    .sort-icon.desc-icon:hover {
-      color: #dc3545; /* Red for descending */
-    }
-
-    /* Add some visual feedback for the header itself */
-    .sortable:hover .sort-icon-container {
-      opacity: 1;
-    }
-
-    .sort-icon-container {
-      opacity: 0.7;
-      transition: opacity 0.2s ease;
-    }
-  `;
+    `;
 
         document.head.appendChild(style);
         console.log("Inline CSS styles applied successfully");
       }
+
       // Cleanup function
       return () => {
         console.log("index.js: Component cleanup");

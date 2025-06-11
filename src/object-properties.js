@@ -5,7 +5,7 @@ export default {
     qInitialDataFetch: [
       {
         qWidth: 10,
-        qHeight: 100, // Increased from 50 to 100 rows
+        qHeight: 100,
       },
     ],
   },
@@ -17,14 +17,13 @@ export default {
   showDetails: false,
   tableOptions: {
     allowSelections: true,
-    allowSorting: true,
     allowWriteback: true,
     rowAlternation: true,
-    pageSize: 100, // Default page size
+    pageSize: 100,
   },
   paginationOptions: {
-    enabled: true,     // Enable pagination by default
-    pageSize: 100,     // Default rows per page
+    enabled: true,
+    pageSize: 100,
     pageSizes: [25, 50, 100, 250],
   },
 };

@@ -1,29 +1,26 @@
 // ui/tableRenderer.js
 /**
  * Table rendering component for the writeback extension
- * UPDATED: Risk column progress bars and reordered columns
+ * CLEAN: No sorting functionality - simple table display
  */
 
 import {
   COLUMN_TYPES,
   STATUS_OPTIONS,
   STATUS_ICONS,
-  RISK_LEVELS, // Updated from CHURN_RISK_LEVELS
   CSS_CLASSES,
   SPECIAL_COLUMNS,
 } from "../utils/constants.js";
-import { extractCustomerName, generateDataKey } from "../core/dataProcessor.js"; // Updated
+import { extractCustomerName, generateDataKey } from "../core/dataProcessor.js";
 
 export class TableRenderer {
   constructor(options = {}) {
     this.onCellEdit = options.onCellEdit || (() => {});
     this.onRowSelect = options.onRowSelect || (() => {});
-    this.onSort = options.onSort || (() => {});
   }
 
   /**
    * Render the complete table
-   * @param {Object} params - Render parameters
    */
   render({
     container,
@@ -62,80 +59,7 @@ export class TableRenderer {
   }
 
   /**
-   * Render table header
-   * @param {HTMLElement} table - Table element
-   * @param {Array} headers - Header configuration
-   * @param {Object} layout - Layout object
-   */
-  /**
-   * Add sorting functionality to header
-   * @param {HTMLElement} th - Header element
-   * @param {Object} header - Header configuration
-   * @param {Object} layout - Layout object
-   */
-  addSortingToHeader(th, header, layout) {
-    th.className = CSS_CLASSES.SORTABLE;
-
-    // Create sort icon container
-    const sortIconContainer = document.createElement("div");
-    sortIconContainer.className = "sort-icon-container";
-
-    // Create ascending and descending sort icons
-    const ascIcon = document.createElement("span");
-    ascIcon.className = "sort-icon asc-icon";
-    ascIcon.textContent = "▲";
-    ascIcon.title = `Sort ${header.label} ascending`;
-
-    const descIcon = document.createElement("span");
-    descIcon.className = "sort-icon desc-icon";
-    descIcon.textContent = "▼";
-    descIcon.title = `Sort ${header.label} descending`;
-
-    sortIconContainer.appendChild(ascIcon);
-    sortIconContainer.appendChild(descIcon);
-    th.appendChild(sortIconContainer);
-
-    // Add click handlers for individual sort directions
-    ascIcon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log(`Ascending sort clicked for ${header.id}`);
-      this.onSort(header, "asc");
-    });
-
-    descIcon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log(`Descending sort clicked for ${header.id}`);
-      this.onSort(header, "desc");
-    });
-
-    // Also allow clicking the header itself to toggle sort
-    th.addEventListener("click", (e) => {
-      // Only if clicking the header directly, not the icons
-      if (e.target === th || e.target.textContent === header.label) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Default to ascending on header click
-        this.onSort(header, "asc");
-      }
-    });
-  }
-
-  /**
-   * Render table body
-   * @param {HTMLElement} table - Table element
-   * @param {Object} tableData - Table data
-   * @param {Object} editedData - Edited data
-   * @param {number} selectedRow - Selected row index
-   * @param {Object} layout - Layout object
-   * @param {number} currentPage - Current page number
-   */
-  /**
-   * Render table header
-   * @param {HTMLElement} table - Table element
-   * @param {Array} headers - Header configuration
-   * @param {Object} layout - Layout object
+   * Render table header - CLEAN: No sort functionality
    */
   renderHeader(table, headers, layout) {
     const thead = document.createElement("thead");
@@ -149,15 +73,6 @@ export class TableRenderer {
       th.setAttribute("data-field", header.id);
       th.setAttribute("data-type", header.type);
 
-      // Add sorting capability ONLY for Amount column
-      if (
-        layout.tableOptions?.allowSorting &&
-        header.type !== COLUMN_TYPES.WRITEBACK &&
-        (header.id === "Amount" || header.label === "Amount")
-      ) {
-        this.addSortingToHeader(th, header, layout);
-      }
-
       headerRow.appendChild(th);
     });
 
@@ -166,68 +81,7 @@ export class TableRenderer {
   }
 
   /**
-   * Add sorting functionality to header
-   * @param {HTMLElement} th - Header element
-   * @param {Object} header - Header configuration
-   * @param {Object} layout - Layout object
-   */
-  addSortingToHeader(th, header, layout) {
-    th.className = CSS_CLASSES.SORTABLE;
-
-    // Create sort icon container
-    const sortIconContainer = document.createElement("div");
-    sortIconContainer.className = "sort-icon-container";
-
-    // Create ascending and descending sort icons
-    const ascIcon = document.createElement("span");
-    ascIcon.className = "sort-icon asc-icon";
-    ascIcon.textContent = "▲";
-    ascIcon.title = `Sort ${header.label} ascending`;
-
-    const descIcon = document.createElement("span");
-    descIcon.className = "sort-icon desc-icon";
-    descIcon.textContent = "▼";
-    descIcon.title = `Sort ${header.label} descending`;
-
-    sortIconContainer.appendChild(ascIcon);
-    sortIconContainer.appendChild(descIcon);
-    th.appendChild(sortIconContainer);
-
-    // Add click handlers for individual sort directions
-    ascIcon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log(`Ascending sort clicked for ${header.id}`);
-      this.onSort(header, "asc");
-    });
-
-    descIcon.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log(`Descending sort clicked for ${header.id}`);
-      this.onSort(header, "desc");
-    });
-
-    // Also allow clicking the header itself to toggle sort
-    th.addEventListener("click", (e) => {
-      // Only if clicking the header directly, not the icons
-      if (e.target === th || e.target.textContent === header.label) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Default to ascending on header click
-        this.onSort(header, "asc");
-      }
-    });
-  }
-
-  /**
    * Render table body
-   * @param {HTMLElement} table - Table element
-   * @param {Object} tableData - Table data
-   * @param {Object} editedData - Edited data
-   * @param {number} selectedRow - Selected row index
-   * @param {Object} layout - Layout object
-   * @param {number} currentPage - Current page number
    */
   renderBody(table, tableData, editedData, selectedRow, layout, currentPage) {
     const tbody = document.createElement("tbody");
@@ -267,14 +121,6 @@ export class TableRenderer {
 
   /**
    * Create a table cell
-   * @param {Object} row - Row data
-   * @param {Object} header - Header configuration
-   * @param {Object} editedData - Edited data
-   * @param {number} rowIndex - Row index
-   * @param {Object} layout - Layout object
-   * @param {number} currentPage - Current page number
-   * @param {HTMLElement} tr - Table row element
-   * @returns {HTMLElement} Table cell element
    */
   createCell(row, header, editedData, rowIndex, layout, currentPage, tr) {
     const td = document.createElement("td");
@@ -299,12 +145,6 @@ export class TableRenderer {
 
   /**
    * Create writeback (editable) cell
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} row - Row data
-   * @param {Object} header - Header configuration
-   * @param {Object} editedData - Edited data
-   * @param {number} rowIndex - Row index
-   * @param {number} currentPage - Current page number
    */
   createWritebackCell(td, row, header, editedData, rowIndex, currentPage) {
     const customerName = extractCustomerName(row, rowIndex, currentPage);
@@ -333,11 +173,6 @@ export class TableRenderer {
 
   /**
    * Create status dropdown cell
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} cellData - Cell data
-   * @param {Object} editedData - Edited data
-   * @param {string} dataKey - Data key
-   * @param {string} customerName - Customer name
    */
   createStatusDropdown(td, cellData, editedData, dataKey, customerName) {
     const selectContainer = document.createElement("div");
@@ -388,9 +223,6 @@ export class TableRenderer {
 
   /**
    * Update status dropdown appearance
-   * @param {HTMLElement} container - Container element
-   * @param {HTMLElement} icon - Icon element
-   * @param {string} value - Status value
    */
   updateStatusAppearance(container, icon, value) {
     // Clear existing classes
@@ -412,12 +244,6 @@ export class TableRenderer {
 
   /**
    * Create text input cell
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} cellData - Cell data
-   * @param {Object} editedData - Edited data
-   * @param {string} dataKey - Data key
-   * @param {string} customerName - Customer name
-   * @param {string} fieldId - Field ID
    */
   createTextInput(td, cellData, editedData, dataKey, customerName, fieldId) {
     const input = document.createElement("input");
@@ -438,17 +264,10 @@ export class TableRenderer {
   }
 
   /**
-   * Create data (non-editable) cell
-   * SIMPLIFIED: No progress bars, just simple text
-   * @param {HTMLElement} td - Cell element
-   * @param {Object} cellData - Cell data
-   * @param {Object} header - Header configuration
-   * @param {number} rowIndex - Row index
-   * @param {Object} layout - Layout object
-   * @param {HTMLElement} tr - Table row element
+   * Create data (non-editable) cell - SIMPLE: Just text
    */
   createDataCell(td, cellData, header, rowIndex, layout, tr) {
-    // SIMPLIFIED: Just show text for all columns, no special formatting
+    // Simple text display for all columns
     td.textContent = cellData.value;
 
     // Add selection capability for dimension cells if enabled
